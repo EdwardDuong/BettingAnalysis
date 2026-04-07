@@ -1,0 +1,42 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.13.35806.99 d17.13
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BettingAnalysis", "BettingAnalysis\BettingAnalysis.csproj", "{D22272A9-CB8D-4EB3-95E5-68ED803BAF52}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Frontend", "Frontend", "{8F4D2A61-3E90-4B7C-9D15-C6E8A3F20B54}"
+	ProjectSection(SolutionItems) = preProject
+		Frontend\index.html = Frontend\index.html
+		Frontend\package.json = Frontend\package.json
+		Frontend\vite.config.js = Frontend\vite.config.js
+		Frontend\tailwind.config.js = Frontend\tailwind.config.js
+		Frontend\postcss.config.js = Frontend\postcss.config.js
+		Frontend\src\App.jsx = Frontend\src\App.jsx
+		Frontend\src\main.jsx = Frontend\src\main.jsx
+		Frontend\src\index.css = Frontend\src\index.css
+		Frontend\src\services\api.js = Frontend\src\services\api.js
+		Frontend\src\components\BankrollPanel.jsx = Frontend\src\components\BankrollPanel.jsx
+		Frontend\src\components\OpportunitiesTable.jsx = Frontend\src\components\OpportunitiesTable.jsx
+		Frontend\src\components\BetHistoryTable.jsx = Frontend\src\components\BetHistoryTable.jsx
+		Frontend\src\components\SettingsPanel.jsx = Frontend\src\components\SettingsPanel.jsx
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D22272A9-CB8D-4EB3-95E5-68ED803BAF52}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D22272A9-CB8D-4EB3-95E5-68ED803BAF52}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D22272A9-CB8D-4EB3-95E5-68ED803BAF52}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D22272A9-CB8D-4EB3-95E5-68ED803BAF52}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {EACBA3CD-7712-4F69-B42E-2DDC72962690}
+	EndGlobalSection
+EndGlobal
