@@ -4,45 +4,46 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace BettingAnalysis.Controllers;
 
-/// <summary>
-/// Main Betting API controller.
-///
-/// Endpoints:
-///   GET  /Betting/opportunities  — Pre-match value bets (Edge >= threshold)
-///   POST /Betting/place          — Simulate placing a bet with full risk checks
-///   GET  /Betting/history        — All placed bets and their results
-///   GET  /Betting/bankroll       — Current bankroll state
-///   POST /Betting/result/{id}    — Mark a pending bet as Win or Loss
-/// </summary>
 [ApiController]
 [Route("[controller]")]
 public class BettingController : ControllerBase
 {
-    private readonly OddsService          _oddsService;
-    private readonly PoissonService       _poissonService;
-    private readonly EdgeService          _edgeService;
-    private readonly BetSizingService     _betSizingService;
-    private readonly BankrollService      _bankrollService;
-    private readonly BettingLoggingService _loggingService;
-    private readonly double               _edgeThreshold;
+    private readonly OddsService          _odds;
+    private readonly PoissonService       _poisson;
+    private readonly EdgeService          _edge;
+    private readonly BetSizingService     _sizing;
+    private readonly BankrollService      _bankroll;
+    private readonly BettingLoggingService _log;
+    private readonly ValidationService    _validation;
+    private readonly LineMovementService  _lineMovement;
+    private readonly CLVService           _clv;
+    private readonly BettingConfigService _cfg;
+    private readonly AIValidatorService   _aiValidator;
 
     public BettingController(
-        OddsService          oddsService,
-        PoissonService       poissonService,
-        EdgeService          edgeService,
-        BetSizingService     betSizingService,
-        BankrollService      bankrollService,
-        BettingLoggingService loggingService,
-        IConfiguration       config)
+        OddsService           odds,
+        PoissonService        poisson,
+        EdgeService           edge,
+        BetSizingService      sizing,
+        BankrollService       bankroll,
+        BettingLoggingService log,
+        ValidationService     validation,
+        LineMovementService   lineMovement,
+        CLVService            clv,
+        BettingConfigService  cfg,
+        AIValidatorService    aiValidator)
     {
-        _oddsService      = oddsService;
-        _poissonService   = poissonService;
-        _edgeService      = edgeService;
-        _betSizingService = betSizingService;
-        _bankrollService  = bankrollService;
-        _loggingService   = loggingService;
-        // Rule #2: Minimum edge to show an opportunity (default 5%)
-        _edgeThreshold    = config.GetValue<double>("BettingSettings:EdgeThreshold", 0.05);
+        _odds         = odds;
+        _poisson      = poisson;
+        _edge         = edge;
+        _sizing       = sizing;
+        _bankroll     = bankroll;
+        _log          = log;
+        _validation   = validation;
+        _lineMovement = lineMovement;
+        _clv          = clv;
+        _cfg          = cfg;
+        _aiValidator  = aiValidator;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -50,169 +51,172 @@ public class BettingController : ControllerBase
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Returns all pre-match value bet opportunities.
+    /// Returns all pre-match value bet opportunities, enriched with AI validation.
     ///
     /// Pipeline:
-    ///   1. OddsService filters to pre-match only (Rule #1)
-    ///   2. PoissonService generates outcome probabilities
-    ///   3. EdgeService calculates model edge vs bookmaker implied probability
-    ///   4. Filter by EdgeThreshold >= 5% (Rule #2)
-    ///   5. BetSizingService calculates Kelly stake (Rule #3)
-    ///   6. Sort by edge descending (best value first)
+    ///   1.  OddsService    → matches within 1–6h betting window (Rules #1, #4)
+    ///   2.  PoissonService → outcome probabilities
+    ///   3.  EdgeService    → model edge vs implied probability (Rule #2)
+    ///   4.  Filter         → edge ≥ EdgeThreshold (default 5%)
+    ///   5.  LineMovement   → Steaming / Drifting / Stable
+    ///   6.  BetSizingService → half-Kelly stake (Rule #3)
+    ///   7.  AIValidatorService → Score, Decision, Flags for all opportunities
+    ///   8.  Sort by AI score descending (GOOD_BET first, then RISKY)
     ///
-    /// Returns empty list if stop-loss is triggered (Rule #5).
+    /// Returns empty list if stop-loss triggered (Rule #5).
     /// </summary>
     [HttpGet("opportunities")]
     public ActionResult<List<BetOpportunity>> GetOpportunities()
     {
-        var bankroll = _bankrollService.GetBankroll();
-
-        // Rule #5: System halted — no opportunities served
+        var bankroll = EnrichedBankroll();
         if (bankroll.IsStopLossTriggered)
             return Ok(new List<BetOpportunity>());
 
-        var preMatchOdds  = _oddsService.GetPreMatchOdds();   // Rule #1 already applied
+        var config       = _cfg.Get();
+        var preMatch     = _odds.GetPreMatchOdds();
         var opportunities = new List<BetOpportunity>();
+        var now          = DateTime.UtcNow;
 
-        foreach (var match in preMatchOdds)
+        foreach (var match in preMatch)
         {
-            var prediction = _poissonService.Predict(match);
+            var prediction = _poisson.Predict(match);
 
-            // Build candidate outcomes for this match
-            var candidates = new List<(string Outcome, string Team, decimal Odds, double Prob)>
+            var candidates = new List<(string Outcome, string Team, decimal Odds, decimal? PrevOdds, double Prob)>
             {
-                ("Home", match.HomeTeam, match.HomeOdds, prediction.HomeWinProb),
-                ("Away", match.AwayTeam, match.AwayOdds, prediction.AwayWinProb)
+                ("Home", match.HomeTeam, match.HomeOdds, match.PreviousHomeOdds, prediction.HomeWinProb),
+                ("Away", match.AwayTeam, match.AwayOdds, match.PreviousAwayOdds, prediction.AwayWinProb),
             };
-
-            // Draw market only for EPL (Rule: sport-appropriate markets)
             if (match.DrawOdds.HasValue && match.SportType == SportType.EPL)
-                candidates.Add(("Draw", "Draw", match.DrawOdds.Value, prediction.DrawProb));
+                candidates.Add(("Draw", "Draw", match.DrawOdds.Value, match.PreviousDrawOdds, prediction.DrawProb));
 
-            foreach (var (outcome, team, odds, prob) in candidates)
+            foreach (var (outcome, team, odds, prevOdds, prob) in candidates)
             {
-                var edge = _edgeService.CalculateEdge(prob, odds);
+                var edgeVal = _edge.CalculateEdge(prob, odds);
+                if (edgeVal < config.EdgeThreshold) continue;
 
-                // Rule #2: Skip if edge below threshold
-                if (edge < _edgeThreshold) continue;
+                var movement      = _lineMovement.GetMovement(odds, prevOdds);
+                var hoursUntil    = (match.MatchStartTime - now).TotalHours;
+                var stake         = _sizing.CalculateStake(prob, odds, bankroll.AvailableBankroll);
+                stake             = Math.Min(stake, bankroll.MaxStakePerBet);
 
-                var stake = _betSizingService.CalculateStake(prob, odds, bankroll.AvailableBankroll);
-
-                // Cap suggested stake at MaxStakePerBet (Rule #3)
-                stake = Math.Min(stake, bankroll.MaxStakePerBet);
+                // Pre-flight validation to collect soft warnings
+                var preCheck = _validation.Validate(match, team, odds, edgeVal, stake, movement);
 
                 opportunities.Add(new BetOpportunity
                 {
-                    MatchId       = match.MatchId,
-                    HomeTeam      = match.HomeTeam,
-                    AwayTeam      = match.AwayTeam,
-                    Team          = team,
-                    Outcome       = outcome,
-                    Odds          = odds,
-                    Probability   = Math.Round(prob, 4),
-                    Edge          = Math.Round(edge, 4),
-                    SuggestedStake = stake,
-                    SportType     = match.SportType,
-                    MatchStartTime = match.MatchStartTime
+                    MatchId             = match.MatchId,
+                    HomeTeam            = match.HomeTeam,
+                    AwayTeam            = match.AwayTeam,
+                    Team                = team,
+                    Outcome             = outcome,
+                    Odds                = odds,
+                    Probability         = Math.Round(prob, 4),
+                    Edge                = Math.Round(edgeVal, 4),
+                    SuggestedStake      = stake,
+                    SportType           = match.SportType,
+                    MatchStartTime      = match.MatchStartTime,
+                    HoursUntilKickoff   = Math.Round(hoursUntil, 2),
+                    PreviousOdds        = prevOdds,
+                    LineMovementStatus  = movement.ToString(),
+                    IsHighRisk          = edgeVal >= config.HighEdgeThreshold || movement == LineMovement.Drifting,
+                    RequiresManualCheck = edgeVal >= config.HighEdgeThreshold,
+                    ValidationWarnings  = preCheck.Warnings,
                 });
             }
         }
 
-        // Best opportunities first (highest edge)
-        return Ok(opportunities.OrderByDescending(o => o.Edge));
+        // ── AI Validator ──────────────────────────────────────────────────────
+        var validated = _aiValidator.Validate(opportunities);
+        foreach (var opp in opportunities)
+        {
+            opp.AiValidation = validated.FirstOrDefault(v => v.MatchId == opp.MatchId && v.Outcome == opp.Outcome);
+        }
+
+        // Sort: GOOD_BET first, then by AI score desc, then by edge desc
+        var sorted = opportunities
+            .OrderBy(o => o.AiValidation?.Decision == "GOOD_BET" ? 0 : o.AiValidation?.Decision == "RISKY" ? 1 : 2)
+            .ThenByDescending(o => o.AiValidation?.Score ?? 0)
+            .ThenByDescending(o => o.Edge)
+            .ToList();
+
+        return Ok(sorted);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // POST /Betting/place
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Simulate placing a bet with full risk management validation.
-    ///
-    /// Validation order:
-    ///   1. Match must be pre-match (Rule #1)
-    ///   2. Edge must meet threshold (Rule #2)
-    ///   3. Stake capped at MaxStakePerBet (Rule #3)
-    ///   4. Daily loss limit check (Rule #4)
-    ///   5. Stop-loss check (Rule #5)
-    ///   6. Rule #8: warn if edge > 20% (flag RequiresVerification)
-    ///   7. Rule #9: log the bet
-    ///   8. Rule #10: reserve stake in bankroll
-    /// </summary>
     [HttpPost("place")]
-    public ActionResult<BetHistory> PlaceBet([FromBody] PlaceBetRequest request)
+    public ActionResult<object> PlaceBet([FromBody] PlaceBetRequest request)
     {
-        // Rule #1: Match must still be pre-match
-        var preMatchOdds = _oddsService.GetPreMatchOdds();
-        var match = preMatchOdds.FirstOrDefault(m => m.MatchId == request.MatchId);
+        var preMatch = _odds.GetPreMatchOdds();
+        var match    = preMatch.FirstOrDefault(m => m.MatchId == request.MatchId);
         if (match is null)
-            return NotFound($"Match '{request.MatchId}' not found or has passed the pre-match cutoff.");
+            return NotFound($"Match '{request.MatchId}' not found or outside the betting window.");
 
-        var prediction = _poissonService.Predict(match);
+        var prediction = _poisson.Predict(match);
 
-        // Resolve outcome fields
         (decimal odds, double prob, string team) = request.Outcome switch
         {
             "Home" => (match.HomeOdds, prediction.HomeWinProb, match.HomeTeam),
             "Away" => (match.AwayOdds, prediction.AwayWinProb, match.AwayTeam),
-            "Draw" => match.DrawOdds.HasValue
-                ? (match.DrawOdds.Value, prediction.DrawProb, "Draw")
-                : throw new InvalidOperationException(),
-            _ => throw new InvalidOperationException()
+            "Draw" when match.DrawOdds.HasValue
+                   => (match.DrawOdds.Value, prediction.DrawProb, "Draw"),
+            "Draw" => throw new InvalidOperationException("No draw market"),
+            _      => throw new InvalidOperationException($"Unknown outcome: {request.Outcome}")
         };
 
         if (request.Outcome == "Draw" && !match.DrawOdds.HasValue)
             return BadRequest("No draw market for this sport.");
 
-        var edge = _edgeService.CalculateEdge(prob, odds);
+        var edgeVal  = _edge.CalculateEdge(prob, odds);
+        var movement = _lineMovement.GetMovement(
+            odds,
+            request.Outcome == "Home" ? match.PreviousHomeOdds :
+            request.Outcome == "Away" ? match.PreviousAwayOdds : match.PreviousDrawOdds);
 
-        // Rule #2: Edge check
-        if (edge < _edgeThreshold)
-            return BadRequest(
-                $"Edge {edge:P2} is below the minimum threshold of {_edgeThreshold:P0}. Bet rejected.");
+        var bankroll = EnrichedBankroll();
+        var stake    = Math.Min(
+            request.CustomStake ?? _sizing.CalculateStake(prob, odds, bankroll.AvailableBankroll),
+            bankroll.MaxStakePerBet);
 
-        // Rule #8: High edge warning (>20%) — would normally require second confirmation
-        bool requiresVerification = edge >= 0.20;
+        // ── Full validation gate ──────────────────────────────────────────────
+        var vResult = _validation.Validate(match, team, odds, edgeVal, stake, movement);
 
-        var bankroll = _bankrollService.GetBankroll();
+        if (!vResult.IsValid)
+        {
+            // Log the rejection for analysis
+            _log.LogRejected(match.MatchId, team, request.Outcome, vResult.Violations);
+            return BadRequest(new { Violations = vResult.Violations, Warnings = vResult.Warnings });
+        }
 
-        // Determine stake: custom or Kelly-calculated, capped at MaxStakePerBet (Rule #3)
-        decimal stake = request.CustomStake
-            ?? _betSizingService.CalculateStake(prob, odds, bankroll.AvailableBankroll);
-        stake = Math.Min(stake, bankroll.MaxStakePerBet);
-
-        // Rules #3, #4, #5: Bankroll gate
-        var (allowed, reason) = _bankrollService.CanPlaceBet(stake);
-        if (!allowed)
-            return BadRequest(reason);
-
-        // Rule #10: Reserve the stake
-        _bankrollService.ReserveStake(stake);
+        _bankroll.ReserveStake(stake);
 
         var bet = new BetHistory
         {
-            MatchId        = match.MatchId,
-            HomeTeam       = match.HomeTeam,
-            AwayTeam       = match.AwayTeam,
-            Team           = team,
-            Outcome        = request.Outcome,
-            Odds           = odds,
-            Probability    = Math.Round(prob, 4),
-            Edge           = Math.Round(edge, 4),
-            Stake          = stake,
-            DateTimePlaced = DateTime.UtcNow,
-            Result         = "Pending",
-            SportType      = match.SportType
+            MatchId            = match.MatchId,
+            HomeTeam           = match.HomeTeam,
+            AwayTeam           = match.AwayTeam,
+            Team               = team,
+            Outcome            = request.Outcome,
+            Odds               = odds,
+            Probability        = Math.Round(prob, 4),
+            Edge               = Math.Round(edgeVal, 4),
+            Stake              = stake,
+            DateTimePlaced     = DateTime.UtcNow,
+            Result             = "Pending",
+            SportType          = match.SportType,
+            LineMovementStatus = movement.ToString(),
         };
 
-        // Rule #9: Log every bet
-        _loggingService.LogBet(bet);
+        _log.LogBet(bet);
 
         return Ok(new
         {
-            Bet = bet,
-            Warning = requiresVerification
-                ? "Edge exceeds 20% — please manually verify the Poisson inputs before confirming."
+            Bet      = bet,
+            Warnings = vResult.Warnings,
+            Note     = vResult.Warnings.Any(w => w.Contains("20%"))
+                ? "Edge > 20% detected — manually verify Poisson inputs before this match starts."
                 : null
         });
     }
@@ -222,43 +226,51 @@ public class BettingController : ControllerBase
     // ─────────────────────────────────────────────────────────────────────────
 
     [HttpGet("history")]
-    public ActionResult<List<BetHistory>> GetHistory()
-        => Ok(_loggingService.GetHistory());
+    public ActionResult<List<BetHistory>> GetHistory() => Ok(_log.GetHistory());
 
     // ─────────────────────────────────────────────────────────────────────────
     // GET /Betting/bankroll
     // ─────────────────────────────────────────────────────────────────────────
 
     [HttpGet("bankroll")]
-    public ActionResult<Bankroll> GetBankroll()
-        => Ok(_bankrollService.GetBankroll());
+    public ActionResult<Bankroll> GetBankroll() => Ok(EnrichedBankroll());
 
     // ─────────────────────────────────────────────────────────────────────────
-    // POST /Betting/result/{id}   body: "Win" or "Loss"
+    // POST /Betting/result/{id}
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Mark a pending bet as Win or Loss and update the bankroll.
-    /// Rule #10: Bankroll must be updated after every result.
+    /// Record a bet result. Provide ClosingOdds to enable CLV calculation.
+    /// CLV = (PlacedOdds / ClosingOdds − 1) × 100%.
+    /// Positive CLV = you beat the market — long-term profitable signal.
     /// </summary>
     [HttpPost("result/{id}")]
-    public ActionResult UpdateResult(Guid id, [FromBody] string result)
+    public ActionResult UpdateResult(Guid id, [FromBody] UpdateResultRequest request)
     {
-        if (result is not ("Win" or "Loss"))
+        if (request.Result is not ("Win" or "Loss"))
             return BadRequest("Result must be \"Win\" or \"Loss\".");
 
-        var bet = _loggingService.GetById(id);
+        var bet = _log.GetById(id);
         if (bet is null)           return NotFound($"Bet {id} not found.");
-        if (bet.Result != "Pending") return BadRequest("Result has already been recorded.");
+        if (bet.Result != "Pending") return BadRequest("Result already recorded.");
 
-        decimal pnl = result == "Win"
-            ? bet.Stake * (bet.Odds - 1m)   // Profit on win
-            : -bet.Stake;                    // Full stake lost
+        decimal pnl = request.Result == "Win" ? bet.Stake * (bet.Odds - 1m) : -bet.Stake;
 
-        _loggingService.UpdateResult(id, result, pnl);
-        _bankrollService.UpdateAfterResult(bet.Stake, bet.Odds, result);
+        double? clvValue = null;
+        if (request.ClosingOdds.HasValue && request.ClosingOdds.Value > 0)
+            clvValue = Math.Round(_clv.CalculateCLV(bet.Odds, request.ClosingOdds.Value), 2);
 
-        return Ok(new { BetId = id, Result = result, PnL = pnl });
+        _log.UpdateResult(id, request.Result, pnl, request.ClosingOdds, clvValue);
+        _bankroll.UpdateAfterResult(bet.Stake, bet.Odds, request.Result);
+
+        return Ok(new
+        {
+            BetId       = id,
+            Result      = request.Result,
+            PnL         = pnl,
+            CLV         = clvValue,
+            CLVLabel    = clvValue.HasValue ? _clv.Interpret(clvValue.Value) : "N/A"
+        });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -268,23 +280,81 @@ public class BettingController : ControllerBase
     [HttpGet("stats")]
     public ActionResult GetStats()
     {
-        var (total, wins, losses, totalPnL) = _loggingService.GetStats();
-        double winRate = total > 0 ? (double)wins / total : 0;
-        return Ok(new { Total = total, Wins = wins, Losses = losses, WinRate = winRate, TotalPnL = totalPnL });
+        var (total, wins, losses, totalPnL, avgCLV) = _log.GetStats();
+        return Ok(new
+        {
+            Total    = total,
+            Wins     = wins,
+            Losses   = losses,
+            WinRate  = total > 0 ? Math.Round((double)wins / total * 100, 1) : 0,
+            TotalPnL = totalPnL,
+            AvgCLV   = avgCLV.HasValue ? Math.Round(avgCLV.Value, 2) : (double?)null,
+            CLVLabel = avgCLV.HasValue ? _clv.Interpret(avgCLV.Value) : "No data yet"
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GET /Betting/rejected
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [HttpGet("rejected")]
+    public ActionResult GetRejected() => Ok(_log.GetRejected());
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GET /Betting/settings
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [HttpGet("settings")]
+    public ActionResult<BettingConfig> GetSettings() => Ok(_cfg.Get());
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PUT /Betting/settings
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Update live betting configuration. Changes apply immediately — no restart needed.
+    /// Also invalidates the odds cache so the new timing window takes effect.
+    /// </summary>
+    [HttpPut("settings")]
+    public ActionResult UpdateSettings([FromBody] BettingConfig updated)
+    {
+        // Safety guards: prevent obviously broken config
+        if (updated.EdgeThreshold < 0.01 || updated.EdgeThreshold > 0.50)
+            return BadRequest("EdgeThreshold must be between 1% and 50%.");
+        if (updated.MaxStakePercent < 0.005 || updated.MaxStakePercent > 0.10)
+            return BadRequest("MaxStakePercent must be between 0.5% and 10%.");
+        if (updated.PreMatchMinHours < 0.5 || updated.PreMatchMinHours >= updated.PreMatchMaxHours)
+            return BadRequest("PreMatchMinHours must be < PreMatchMaxHours and ≥ 0.5.");
+
+        _cfg.Update(updated);
+        _odds.InvalidateCache();
+
+        return Ok(new { Message = "Settings updated.", Config = _cfg.Get() });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // POST /Betting/refresh
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Force-clear the odds cache so the next /opportunities call re-fetches from the API.
-    /// Rule #7: call this every 30–60 minutes in production.
-    /// </summary>
     [HttpPost("refresh")]
     public ActionResult RefreshOdds()
     {
-        _oddsService.InvalidateCache();
-        return Ok(new { Message = "Odds cache cleared. Next request will fetch fresh data." });
+        _odds.InvalidateCache();
+        return Ok(new { Message = "Odds cache cleared." });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Merge core bankroll with live exposure and tilt data from logging service.</summary>
+    private Bankroll EnrichedBankroll()
+    {
+        var b = _bankroll.GetBankroll();
+        var config = _cfg.Get();
+        b.TotalExposure        = _log.GetTotalExposure();
+        b.ConsecutiveLosses    = _log.GetConsecutiveLosses();
+        b.MaxConsecutiveLosses = config.MaxConsecutiveLosses;
+        return b;
     }
 }

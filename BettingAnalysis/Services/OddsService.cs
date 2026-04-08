@@ -62,8 +62,13 @@ public class OddsService
                     var real = _realApi.GetRealOddsAsync().GetAwaiter().GetResult();
                     if (real?.Count > 0)
                     {
+                        // Supplement with mock Esports — no Esports source on The Odds API
+                        var esportsMock = GetMockOdds().Where(m => m.SportType == SportType.Esports).ToList();
+                        real.AddRange(esportsMock);
+
                         _cache = real; _cacheExpiry = DateTime.UtcNow.Add(CacheDuration);
-                        _logger.LogInformation("Loaded {Count} real matches. Cache until {T:HH:mm}", real.Count, _cacheExpiry);
+                        _logger.LogInformation("Loaded {Count} real matches + {E} mock Esports. Cache until {T:HH:mm}",
+                            real.Count - esportsMock.Count, esportsMock.Count, _cacheExpiry);
                         return _cache;
                     }
                 }

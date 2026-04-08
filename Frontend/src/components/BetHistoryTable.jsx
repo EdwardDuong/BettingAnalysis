@@ -2,27 +2,19 @@ import React, { useState } from 'react';
 import { updateResult } from '../services/api.js';
 
 const SPORT_EMOJI = { EPL: '⚽', AFL: '🏈', NRL: '🏉', NBA: '🏀', Esports: '🎮' };
+const fmt = (n) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(n ?? 0);
 
-/**
- * BetHistoryTable — displays all placed bets.
- *
- * Features:
- *   - Win/Loss/Pending status badge
- *   - PnL in green (profit) or red (loss)
- *   - "Mark Win / Mark Loss" buttons for Pending bets
- *   - Aggregate summary row at bottom
- *   - Rule #9: all bet data is fetched from the logging service
- *   - Rule #10: marking a result triggers bankroll update server-side
- */
 export default function BetHistoryTable({ history, onResultUpdated }) {
-  const [updating, setUpdating] = useState(null);
-  const [error, setError]       = useState(null);
+  const [updating, setUpdating]     = useState(null);
+  const [closingOdds, setClosingOdds] = useState({});  // { [id]: string }
+  const [error, setError]           = useState(null);
 
   const handleResult = async (id, result) => {
     setUpdating(id);
     setError(null);
     try {
-      await updateResult(id, result);
+      const odds = parseFloat(closingOdds[id]) || null;
+      await updateResult(id, result, odds > 0 ? odds : null);
       onResultUpdated();
     } catch (err) {
       setError(err.message);
@@ -31,39 +23,31 @@ export default function BetHistoryTable({ history, onResultUpdated }) {
     }
   };
 
-  const settled    = history.filter(b => b.result !== 'Pending');
-  const totalPnL   = settled.reduce((acc, b) => acc + b.pnL, 0);
-  const wins       = settled.filter(b => b.result === 'Win').length;
-  const winRate    = settled.length > 0 ? (wins / settled.length * 100).toFixed(1) : '—';
+  const settled   = history.filter(b => b.result !== 'Pending');
+  const totalPnL  = settled.reduce((s, b) => s + (b.pnL ?? 0), 0);
+  const wins      = settled.filter(b => b.result === 'Win').length;
+  const clvBets   = settled.filter(b => b.clv != null);
+  const avgCLV    = clvBets.length ? clvBets.reduce((s, b) => s + b.clv, 0) / clvBets.length : null;
+  const winRate   = settled.length ? (wins / settled.length * 100).toFixed(1) : '—';
 
-  const fmt = (n) =>
-    new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(n);
-
-  if (history.length === 0) {
-    return (
-      <div className="text-center text-gray-500 py-16 text-sm">
-        No bets placed yet. Find an opportunity above and click "Place Bet".
-      </div>
-    );
-  }
+  if (history.length === 0)
+    return <div className="text-center text-gray-500 py-16 text-sm">No bets placed yet.</div>;
 
   return (
     <div className="space-y-4">
-      {error && (
-        <div className="bg-red-900 border border-red-600 text-red-200 rounded-lg px-4 py-2 text-sm">
-          {error}
-        </div>
-      )}
+      {error && <div className="bg-red-900 border border-red-600 text-red-200 rounded-lg px-4 py-2 text-sm">{error}</div>}
 
-      {/* Summary bar */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <SummaryCard label="Total Bets"  value={history.length}       color="text-white" />
-        <SummaryCard label="Win Rate"    value={`${winRate}%`}        color="text-green-400" />
-        <SummaryCard label="Settled"     value={settled.length}       color="text-blue-400" />
-        <SummaryCard
-          label="Total PnL"
-          value={fmt(totalPnL)}
-          color={totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}
+      {/* Summary */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <Card label="Total Bets"  value={history.length}                   color="text-white" />
+        <Card label="Win Rate"    value={`${winRate}%`}                    color="text-green-400" />
+        <Card label="Settled"     value={settled.length}                   color="text-blue-400" />
+        <Card label="Total PnL"   value={fmt(totalPnL)}                    color={totalPnL >= 0 ? 'text-green-400' : 'text-red-400'} />
+        <Card
+          label="Avg CLV"
+          value={avgCLV != null ? `${avgCLV >= 0 ? '+' : ''}${avgCLV.toFixed(2)}%` : 'N/A'}
+          color={avgCLV == null ? 'text-gray-400' : avgCLV >= 2 ? 'text-green-400' : avgCLV >= 0 ? 'text-yellow-400' : 'text-red-400'}
+          tooltip="Closing Line Value — positive = you beat the market long-term"
         />
       </div>
 
@@ -71,74 +55,93 @@ export default function BetHistoryTable({ history, onResultUpdated }) {
         <table className="w-full text-sm text-left">
           <thead>
             <tr className="bg-gray-700 text-gray-300 uppercase text-xs">
-              <th className="px-4 py-3">Sport</th>
-              <th className="px-4 py-3">Match</th>
-              <th className="px-4 py-3">Bet</th>
-              <th className="px-4 py-3 text-right">Odds</th>
-              <th className="px-4 py-3 text-right">Edge</th>
-              <th className="px-4 py-3 text-right">Stake</th>
-              <th className="px-4 py-3">Placed</th>
-              <th className="px-4 py-3 text-center">Result</th>
-              <th className="px-4 py-3 text-right">PnL</th>
-              <th className="px-4 py-3">Actions</th>
+              <th className="px-3 py-3">Sport</th>
+              <th className="px-3 py-3">Match</th>
+              <th className="px-3 py-3">Bet</th>
+              <th className="px-3 py-3 text-right">Odds</th>
+              <th className="px-3 py-3 text-right">Close</th>
+              <th className="px-3 py-3 text-right">CLV</th>
+              <th className="px-3 py-3 text-right">Edge</th>
+              <th className="px-3 py-3 text-right">Stake</th>
+              <th className="px-3 py-3">Line</th>
+              <th className="px-3 py-3">Placed</th>
+              <th className="px-3 py-3 text-center">Result</th>
+              <th className="px-3 py-3 text-right">PnL</th>
+              <th className="px-3 py-3">Mark Result</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-700">
             {history.map(bet => (
               <tr key={bet.id} className="bg-gray-800 hover:bg-gray-750 transition-colors">
-                <td className="px-4 py-3 text-lg" title={bet.sportType}>
-                  {SPORT_EMOJI[bet.sportType] ?? '🏆'}
-                </td>
-                <td className="px-4 py-3 text-white whitespace-nowrap">
+                <td className="px-3 py-3 text-lg">{SPORT_EMOJI[bet.sportType] ?? '🏆'}</td>
+
+                <td className="px-3 py-3 text-white whitespace-nowrap text-xs">
                   {bet.homeTeam} <span className="text-gray-500">vs</span> {bet.awayTeam}
                 </td>
-                <td className="px-4 py-3 text-blue-300 font-medium">
-                  {bet.team}
-                  <span className="ml-1 text-gray-500 text-xs">({bet.outcome})</span>
+
+                <td className="px-3 py-3 text-blue-300 font-medium whitespace-nowrap">
+                  {bet.team} <span className="text-gray-500 text-xs">({bet.outcome})</span>
                 </td>
-                <td className="px-4 py-3 text-right font-mono text-yellow-300">
-                  {bet.odds.toFixed(2)}
+
+                <td className="px-3 py-3 text-right font-mono text-yellow-300">{bet.odds?.toFixed(2)}</td>
+
+                {/* Closing odds */}
+                <td className="px-3 py-3 text-right font-mono text-gray-400">
+                  {bet.closingOdds != null ? bet.closingOdds.toFixed(2) : '—'}
                 </td>
-                <td className="px-4 py-3 text-right font-mono text-gray-300">
-                  {(bet.edge * 100).toFixed(1)}%
+
+                {/* CLV */}
+                <td className="px-3 py-3 text-right font-mono font-bold">
+                  {bet.clv != null ? (
+                    <span className={bet.clv >= 0 ? 'text-green-400' : 'text-red-400'}>
+                      {bet.clv >= 0 ? '+' : ''}{bet.clv.toFixed(2)}%
+                    </span>
+                  ) : <span className="text-gray-500">—</span>}
                 </td>
-                <td className="px-4 py-3 text-right font-mono font-semibold text-white">
-                  ${bet.stake.toFixed(2)}
+
+                <td className="px-3 py-3 text-right font-mono text-gray-300">{((bet.edge ?? 0) * 100).toFixed(1)}%</td>
+
+                <td className="px-3 py-3 text-right font-mono font-bold text-white">${(bet.stake ?? 0).toFixed(2)}</td>
+
+                <td className="px-3 py-3 text-xs">
+                  {bet.lineMovementStatus === 'Steaming' ? <span className="text-green-400">↓ Steam</span>
+                  : bet.lineMovementStatus === 'Drifting' ? <span className="text-red-400">↑ Drift</span>
+                  : <span className="text-gray-500">→ Stable</span>}
                 </td>
-                <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">
+
+                <td className="px-3 py-3 text-gray-400 text-xs whitespace-nowrap">
                   {new Date(bet.dateTimePlaced).toLocaleString()}
                 </td>
-                <td className="px-4 py-3 text-center">
-                  <ResultBadge result={bet.result} />
+
+                <td className="px-3 py-3 text-center"><ResultBadge result={bet.result} /></td>
+
+                <td className="px-3 py-3 text-right font-mono font-bold">
+                  {bet.result === 'Pending' ? <span className="text-gray-500">—</span>
+                    : <span className={bet.pnL >= 0 ? 'text-green-400' : 'text-red-400'}>
+                        {bet.pnL >= 0 ? '+' : ''}{fmt(bet.pnL)}
+                      </span>}
                 </td>
-                <td className="px-4 py-3 text-right font-mono font-bold">
+
+                {/* Mark result with optional closing odds */}
+                <td className="px-3 py-3">
                   {bet.result === 'Pending' ? (
-                    <span className="text-gray-500">—</span>
-                  ) : (
-                    <span className={bet.pnL >= 0 ? 'text-green-400' : 'text-red-400'}>
-                      {bet.pnL >= 0 ? '+' : ''}{fmt(bet.pnL)}
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-3">
-                  {bet.result === 'Pending' && (
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => handleResult(bet.id, 'Win')}
-                        disabled={updating === bet.id}
-                        className="px-2 py-1 text-xs rounded bg-green-700 hover:bg-green-600 disabled:opacity-50 transition-colors"
-                      >
-                        Win
-                      </button>
-                      <button
-                        onClick={() => handleResult(bet.id, 'Loss')}
-                        disabled={updating === bet.id}
-                        className="px-2 py-1 text-xs rounded bg-red-700 hover:bg-red-600 disabled:opacity-50 transition-colors"
-                      >
-                        Loss
-                      </button>
+                    <div className="flex flex-col gap-1 min-w-[140px]">
+                      <input
+                        type="number"
+                        placeholder="Closing odds"
+                        step="0.01"
+                        className="bg-gray-700 border border-gray-600 rounded px-2 py-0.5 text-xs text-white w-full"
+                        value={closingOdds[bet.id] ?? ''}
+                        onChange={e => setClosingOdds(o => ({ ...o, [bet.id]: e.target.value }))}
+                      />
+                      <div className="flex gap-1">
+                        <button onClick={() => handleResult(bet.id, 'Win')}  disabled={updating === bet.id}
+                          className="flex-1 px-2 py-1 text-xs rounded bg-green-700 hover:bg-green-600 disabled:opacity-50">Win</button>
+                        <button onClick={() => handleResult(bet.id, 'Loss')} disabled={updating === bet.id}
+                          className="flex-1 px-2 py-1 text-xs rounded bg-red-700 hover:bg-red-600 disabled:opacity-50">Loss</button>
+                      </div>
                     </div>
-                  )}
+                  ) : null}
                 </td>
               </tr>
             ))}
@@ -150,23 +153,15 @@ export default function BetHistoryTable({ history, onResultUpdated }) {
 }
 
 function ResultBadge({ result }) {
-  const styles = {
-    Win:     'bg-green-800 text-green-200',
-    Loss:    'bg-red-800 text-red-200',
-    Pending: 'bg-gray-600 text-gray-300',
-  };
-  return (
-    <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${styles[result]}`}>
-      {result}
-    </span>
-  );
+  const s = { Win: 'bg-green-800 text-green-200', Loss: 'bg-red-800 text-red-200', Pending: 'bg-gray-600 text-gray-300' };
+  return <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${s[result]}`}>{result}</span>;
 }
 
-function SummaryCard({ label, value, color }) {
+function Card({ label, value, color, tooltip }) {
   return (
-    <div className="bg-gray-700 rounded-lg p-3 text-center">
+    <div className="bg-gray-700 rounded-lg p-3 text-center" title={tooltip}>
       <p className="text-gray-400 text-xs mb-1">{label}</p>
-      <p className={`font-bold text-lg ${color}`}>{value}</p>
+      <p className={`font-bold text-base ${color}`}>{value}</p>
     </div>
   );
 }

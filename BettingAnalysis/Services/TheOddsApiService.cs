@@ -24,14 +24,14 @@ public class TheOddsApiService
     private readonly string _apiKey;
     private readonly ILogger<TheOddsApiService> _logger;
 
-    // Maps our SportType enum to The Odds API sport keys
+    // Maps our SportType enum to The Odds API sport keys (verified active keys)
     private static readonly Dictionary<SportType, string> SportKeys = new()
     {
         { SportType.EPL,     "soccer_epl"         },
-        { SportType.AFL,     "aussie_rules_afl"   },
+        { SportType.AFL,     "aussierules_afl"    },  // Fixed: was aussie_rules_afl (wrong)
         { SportType.NRL,     "rugbyleague_nrl"    },
         { SportType.NBA,     "basketball_nba"     },
-        { SportType.Esports, "esports_csgo"       },  // CS2 / CSGO
+        // Esports has no active key on The Odds API — handled by OddsService mock fallback
     };
 
     private static readonly JsonSerializerOptions JsonOpts = new()
@@ -158,18 +158,19 @@ public class TheOddsApiService
             // Scale average goals by relative strength vs league mean
             homeLambda = avgHomeGoals * (fairHome / leagueAvgHomeWin);
             awayLambda = avgAwayGoals * (fairAway / leagueAvgAwayWin);
+            // Clamp EPL goal lambdas to a reasonable range (0.3 – 3.5)
+            homeLambda = Math.Clamp(homeLambda, 0.3, 3.5);
+            awayLambda = Math.Clamp(awayLambda, 0.3, 3.5);
         }
         else
         {
-            // For binary-outcome sports: use fair probability ratio as lambda proxy
-            // The Poisson model will use these to compute P(home) = λh / (λh + λa)
-            homeLambda = fairHome * 2.0;
-            awayLambda = fairAway * 2.0;
+            // For binary-outcome sports: use fair probabilities directly as lambdas.
+            // PoissonService.PredictNoDraw computes P(home) = λh/(λh+λa).
+            // Setting λh=fairHome, λa=fairAway gives P(home)=fairHome exactly — no distortion.
+            // Both values are always in (0,1) and need no clamping.
+            homeLambda = fairHome;
+            awayLambda = fairAway;
         }
-
-        // Clamp lambdas to a reasonable range (0.3 – 3.5)
-        homeLambda = Math.Clamp(homeLambda, 0.3, 3.5);
-        awayLambda = Math.Clamp(awayLambda, 0.3, 3.5);
 
         return new MatchOdds
         {
