@@ -103,6 +103,31 @@ public class BettingLoggingService
         }
     }
 
+    /// <summary>Win/loss/PnL breakdown per sport, for the analytics view.</summary>
+    public List<object> GetStatsBySport()
+    {
+        lock (_lock)
+        {
+            return _history
+                .Where(b => b.Result != "Pending")
+                .GroupBy(b => b.SportType.ToString())
+                .Select(g => (object)new
+                {
+                    Sport   = g.Key,
+                    Total   = g.Count(),
+                    Wins    = g.Count(b => b.Result == "Win"),
+                    Losses  = g.Count(b => b.Result == "Loss"),
+                    WinRate = g.Count() > 0 ? Math.Round((double)g.Count(b => b.Result == "Win") / g.Count() * 100, 1) : 0,
+                    TotalPnL = g.Sum(b => b.PnL),
+                    AvgEdge = g.Count() > 0 ? Math.Round(g.Average(b => (double)b.Edge) * 100, 1) : 0,
+                    AvgCLV  = g.Any(b => b.CLV.HasValue)
+                        ? Math.Round(g.Where(b => b.CLV.HasValue).Average(b => b.CLV!.Value), 2)
+                        : (double?)null,
+                })
+                .ToList();
+        }
+    }
+
     /// <summary>Aggregate stats for the dashboard summary bar.</summary>
     public (int Total, int Wins, int Losses, decimal TotalPnL, double? AvgCLV) GetStats()
     {

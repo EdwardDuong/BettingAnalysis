@@ -19,6 +19,7 @@ public class BettingController : ControllerBase
     private readonly CLVService           _clv;
     private readonly BettingConfigService _cfg;
     private readonly AIValidatorService   _aiValidator;
+    private readonly ParlayService        _parlay;
 
     public BettingController(
         OddsService           odds,
@@ -31,7 +32,8 @@ public class BettingController : ControllerBase
         LineMovementService   lineMovement,
         CLVService            clv,
         BettingConfigService  cfg,
-        AIValidatorService    aiValidator)
+        AIValidatorService    aiValidator,
+        ParlayService         parlay)
     {
         _odds         = odds;
         _poisson      = poisson;
@@ -44,6 +46,7 @@ public class BettingController : ControllerBase
         _clv          = clv;
         _cfg          = cfg;
         _aiValidator  = aiValidator;
+        _parlay       = parlay;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -342,6 +345,118 @@ public class BettingController : ControllerBase
         _odds.InvalidateCache();
         return Ok(new { Message = "Odds cache cleared." });
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GET /Betting/parlays
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns multi-leg parlay combos built from the current GOOD_BET opportunities.
+    /// One combo per leg count (2-leg, 3-leg, 4-leg), using the highest-scored selections.
+    /// Same-match legs are excluded to avoid correlation.
+    /// </summary>
+    [HttpGet("parlays")]
+    public ActionResult<List<ParlayCombo>> GetParlays()
+    {
+        var bankroll = EnrichedBankroll();
+        if (bankroll.IsStopLossTriggered)
+            return Ok(new List<ParlayCombo>());
+
+        // Reuse the same opportunity pipeline from GetOpportunities
+        var config   = _cfg.Get();
+        var preMatch = _odds.GetPreMatchOdds();
+        var opportunities = new List<BetOpportunity>();
+        var now      = DateTime.UtcNow;
+
+        foreach (var match in preMatch)
+        {
+            var prediction = _poisson.Predict(match);
+            var candidates = new List<(string Outcome, string Team, decimal Odds, decimal? PrevOdds, double Prob)>
+            {
+                ("Home", match.HomeTeam, match.HomeOdds, match.PreviousHomeOdds, prediction.HomeWinProb),
+                ("Away", match.AwayTeam, match.AwayOdds, match.PreviousAwayOdds, prediction.AwayWinProb),
+            };
+            if (match.DrawOdds.HasValue && match.SportType == SportType.EPL)
+                candidates.Add(("Draw", "Draw", match.DrawOdds.Value, match.PreviousDrawOdds, prediction.DrawProb));
+
+            foreach (var (outcome, team, odds, prevOdds, prob) in candidates)
+            {
+                var edgeVal = _edge.CalculateEdge(prob, odds);
+                if (edgeVal < config.EdgeThreshold) continue;
+
+                var movement   = _lineMovement.GetMovement(odds, prevOdds);
+                var hoursUntil = (match.MatchStartTime - now).TotalHours;
+                var stake      = Math.Min(_sizing.CalculateStake(prob, odds, bankroll.AvailableBankroll), bankroll.MaxStakePerBet);
+
+                opportunities.Add(new BetOpportunity
+                {
+                    MatchId           = match.MatchId,
+                    HomeTeam          = match.HomeTeam,
+                    AwayTeam          = match.AwayTeam,
+                    Team              = team,
+                    Outcome           = outcome,
+                    Odds              = odds,
+                    Probability       = Math.Round(prob, 4),
+                    Edge              = Math.Round(edgeVal, 4),
+                    SuggestedStake    = stake,
+                    SportType         = match.SportType,
+                    MatchStartTime    = match.MatchStartTime,
+                    HoursUntilKickoff = Math.Round(hoursUntil, 2),
+                    PreviousOdds      = prevOdds,
+                    LineMovementStatus = movement.ToString(),
+                });
+            }
+        }
+
+        var validated = _aiValidator.Validate(opportunities);
+        foreach (var opp in opportunities)
+            opp.AiValidation = validated.FirstOrDefault(v => v.MatchId == opp.MatchId && v.Outcome == opp.Outcome);
+
+        return Ok(_parlay.BuildCombos(opportunities));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GET /Betting/stats/sport
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Returns win/loss/PnL breakdown per sport for the analytics view.</summary>
+    [HttpGet("stats/sport")]
+    public ActionResult GetStatsBySport() => Ok(_log.GetStatsBySport());
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GET /Betting/export/csv
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Downloads the full bet history as a CSV file.</summary>
+    [HttpGet("export/csv")]
+    public IActionResult ExportCsv()
+    {
+        var history = _log.GetHistory();
+        var lines   = new List<string>
+        {
+            "Id,HomeTeam,AwayTeam,Team,Outcome,SportType,Odds,ClosingOdds,CLV,Edge,Stake,PnL,Result,LineMovement,DatePlaced"
+        };
+
+        foreach (var b in history)
+        {
+            lines.Add(string.Join(",",
+                b.Id,
+                Escape(b.HomeTeam), Escape(b.AwayTeam), Escape(b.Team),
+                b.Outcome, b.SportType,
+                b.Odds, b.ClosingOdds?.ToString() ?? "",
+                b.CLV?.ToString("F2") ?? "",
+                b.Edge.ToString("F4"), b.Stake, b.PnL,
+                b.Result, b.LineMovementStatus,
+                b.DateTimePlaced.ToString("o")));
+        }
+
+        var csv  = string.Join("\n", lines);
+        var bytes = System.Text.Encoding.UTF8.GetBytes(csv);
+        return File(bytes, "text/csv", $"bet-history-{DateTime.UtcNow:yyyyMMdd}.csv");
+    }
+
+    private static string Escape(string s) =>
+        s.Contains(',') || s.Contains('"') ? $"\"{s.Replace("\"", "\"\"")}\"" : s;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Helpers
