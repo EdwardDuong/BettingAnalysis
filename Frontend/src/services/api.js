@@ -17,6 +17,8 @@ export const getOpportunities = () => request('/opportunities');
 export const getHistory       = () => request('/history');
 export const getBankroll      = () => request('/bankroll');
 export const getStats         = () => request('/stats');
+export const getSportStats    = () => request('/stats/sport');
+export const getParlays       = () => request('/parlays');
 export const getRejected      = () => request('/rejected');
 export const getSettings      = () => request('/settings');
 export const refreshOdds      = () => request('/refresh', { method: 'POST' });
@@ -29,3 +31,10 @@ export const updateResult = (id, result, closingOdds = null) =>
 
 export const saveSettings = (config) =>
   request('/settings', { method: 'PUT', body: JSON.stringify(config) });
+
+export const exportCsv = () => {
+  const a = document.createElement('a');
+  a.href = `${BASE}/export/csv`;
+  a.download = `bet-history-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+};

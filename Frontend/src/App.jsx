@@ -3,10 +3,12 @@ import BankrollPanel      from './components/BankrollPanel.jsx';
 import OpportunitiesTable from './components/OpportunitiesTable.jsx';
 import BetHistoryTable    from './components/BetHistoryTable.jsx';
 import SettingsPanel      from './components/SettingsPanel.jsx';
+import ParlayPanel        from './components/ParlayPanel.jsx';
+import AnalyticsPanel     from './components/AnalyticsPanel.jsx';
 import { getOpportunities, getHistory, getBankroll, getStats, refreshOdds } from './services/api.js';
 
 const SPORTS      = ['All', 'EPL', 'AFL', 'NRL', 'NBA', 'Esports'];
-const MAIN_TABS   = ['Opportunities', 'History', 'Settings'];
+const MAIN_TABS   = ['Opportunities', 'Parlays', 'History', 'Analytics', 'Settings'];
 const SPORT_EMOJI = { EPL: '⚽', AFL: '🏈', NRL: '🏉', NBA: '🏀', Esports: '🎮', All: '🌐' };
 
 export default function App() {
@@ -177,10 +179,16 @@ export default function App() {
           </div>
         )}
 
+        {/* ── Parlays ─────────────────────────────────────────────── */}
+        {mainTab === 'Parlays' && <ParlayPanel />}
+
         {/* ── History ─────────────────────────────────────────────── */}
         {mainTab === 'History' && (
           loading ? <Skeleton /> : <BetHistoryTable history={history} onResultUpdated={fetchAll} />
         )}
+
+        {/* ── Analytics ───────────────────────────────────────────── */}
+        {mainTab === 'Analytics' && <AnalyticsPanel history={history} />}
 
         {/* ── Settings ────────────────────────────────────────────── */}
         {mainTab === 'Settings' && <SettingsPanel />}
