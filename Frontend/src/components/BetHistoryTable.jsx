@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { updateResult } from '../services/api.js';
+import { updateResult, exportCsv } from '../services/api.js';
 
 const SPORT_EMOJI = { EPL: '⚽', AFL: '🏈', NRL: '🏉', NBA: '🏀', Esports: '🎮' };
 const fmt = (n) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(n ?? 0);
@@ -36,6 +36,17 @@ export default function BetHistoryTable({ history, onResultUpdated }) {
   return (
     <div className="space-y-4">
       {error && <div className="bg-red-900 border border-red-600 text-red-200 rounded-lg px-4 py-2 text-sm">{error}</div>}
+
+      {/* Summary + export */}
+      <div className="flex items-center justify-between">
+        <span className="text-gray-400 text-sm">{history.length} total bet{history.length !== 1 ? 's' : ''}</span>
+        <button
+          onClick={exportCsv}
+          className="px-3 py-1.5 text-xs rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors"
+        >
+          ↓ Export CSV
+        </button>
+      </div>
 
       {/* Summary */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
