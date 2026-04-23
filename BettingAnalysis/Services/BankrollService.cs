@@ -84,6 +84,23 @@ public class BankrollService
         }
     }
 
+    /// <summary>
+    /// Hard reset — wipes all loss counters and restores the bankroll to
+    /// <paramref name="newAmount"/> (defaults to the configured initial bankroll).
+    /// </summary>
+    public void Reset(decimal? newAmount = null)
+    {
+        lock (_lock)
+        {
+            var amount         = newAmount ?? _totalBankroll;
+            _totalBankroll     = amount;
+            _availableBankroll = amount;
+            _dailyLossUsed     = 0;
+            _cumulativeLoss    = 0;
+            _lastResetDate     = DateTime.UtcNow.Date;
+        }
+    }
+
     private void ResetDailyIfNeeded()
     {
         var today = DateTime.UtcNow.Date;

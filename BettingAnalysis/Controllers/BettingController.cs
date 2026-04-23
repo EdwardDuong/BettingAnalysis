@@ -347,6 +347,59 @@ public class BettingController : ControllerBase
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // GET /Betting/prediction/{matchId}
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns the Poisson prediction detail for a single match: lambdas,
+    /// model probabilities, and implied probabilities from the current odds.
+    /// Useful for manually verifying the model before placing a bet.
+    /// </summary>
+    [HttpGet("prediction/{matchId}")]
+    public ActionResult GetPrediction(string matchId)
+    {
+        var match = _odds.GetPreMatchOdds().FirstOrDefault(m => m.MatchId == matchId);
+        if (match is null)
+            return NotFound($"Match '{matchId}' not found or outside the betting window.");
+
+        var p = _poisson.Predict(match);
+        return Ok(new
+        {
+            MatchId         = match.MatchId,
+            HomeTeam        = match.HomeTeam,
+            AwayTeam        = match.AwayTeam,
+            SportType       = match.SportType,
+            HomeLambda      = match.HomeLambda,
+            AwayLambda      = match.AwayLambda,
+            ModelHomeProb   = Math.Round(p.HomeWinProb, 4),
+            ModelDrawProb   = Math.Round(p.DrawProb,    4),
+            ModelAwayProb   = Math.Round(p.AwayWinProb, 4),
+            ImpliedHomeProb = Math.Round(1.0 / (double)match.HomeOdds, 4),
+            ImpliedAwayProb = Math.Round(1.0 / (double)match.AwayOdds, 4),
+            ImpliedDrawProb = match.DrawOdds.HasValue
+                ? Math.Round(1.0 / (double)match.DrawOdds.Value, 4) : (double?)null,
+            HomeEdge = Math.Round(_edge.CalculateEdge(p.HomeWinProb, match.HomeOdds), 4),
+            AwayEdge = Math.Round(_edge.CalculateEdge(p.AwayWinProb, match.AwayOdds), 4),
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // POST /Betting/bankroll/reset
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Resets the bankroll state (loss counters, daily limit).
+    /// Optionally accepts a new starting amount in the request body.
+    /// Does NOT clear bet history — use for starting a new session.
+    /// </summary>
+    [HttpPost("bankroll/reset")]
+    public ActionResult ResetBankroll([FromBody] decimal? newAmount = null)
+    {
+        _bankroll.Reset(newAmount);
+        return Ok(new { Message = "Bankroll reset.", Bankroll = EnrichedBankroll() });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // GET /Betting/parlays
     // ─────────────────────────────────────────────────────────────────────────
 
