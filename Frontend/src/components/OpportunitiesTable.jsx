@@ -20,13 +20,35 @@ const FLAG_STYLE = {
   STEAMING:            { bg: 'bg-green-700',  label: '↓ STEAMING'         },
 };
 
-export default function OpportunitiesTable({ opportunities, selectedSport, onBetPlaced }) {
-  const [placing, setPlacing]   = useState(null);
-  const [feedback, setFeedback] = useState({});
+const SORT_OPTIONS = [
+  { value: 'ai',       label: 'AI Score'    },
+  { value: 'edge',     label: 'Edge'        },
+  { value: 'odds',     label: 'Odds'        },
+  { value: 'kickoff',  label: 'Kickoff'     },
+  { value: 'stake',    label: 'Stake'       },
+];
 
-  const filtered = selectedSport === 'All'
+export default function OpportunitiesTable({ opportunities, selectedSport, onBetPlaced }) {
+  const [placing,  setPlacing]  = useState(null);
+  const [feedback, setFeedback] = useState({});
+  const [sortBy,   setSortBy]   = useState('ai');
+
+  const filtered = (selectedSport === 'All'
     ? opportunities
-    : opportunities.filter(o => o.sportType === selectedSport);
+    : opportunities.filter(o => o.sportType === selectedSport)
+  ).slice().sort((a, b) => {
+    switch (sortBy) {
+      case 'edge':    return (b.edge ?? 0) - (a.edge ?? 0);
+      case 'odds':    return (b.odds ?? 0) - (a.odds ?? 0);
+      case 'kickoff': return new Date(a.matchStartTime) - new Date(b.matchStartTime);
+      case 'stake':   return (b.suggestedStake ?? 0) - (a.suggestedStake ?? 0);
+      default:        // 'ai' — preserve backend sort (GOOD_BET first, then score)
+        const decisionOrder = { GOOD_BET: 0, RISKY: 1, SKIP: 2 };
+        const da = decisionOrder[a.aiValidation?.decision] ?? 2;
+        const db = decisionOrder[b.aiValidation?.decision] ?? 2;
+        return da !== db ? da - db : (b.aiValidation?.score ?? 0) - (a.aiValidation?.score ?? 0);
+    }
+  });
 
   const handlePlace = async (opp) => {
     const key = `${opp.matchId}-${opp.outcome}`;
@@ -56,6 +78,18 @@ export default function OpportunitiesTable({ opportunities, selectedSport, onBet
   }
 
   return (
+    <div className="space-y-3">
+    <div className="flex items-center gap-2 justify-end">
+      <span className="text-gray-500 text-xs">Sort by:</span>
+      {SORT_OPTIONS.map(opt => (
+        <button key={opt.value} onClick={() => setSortBy(opt.value)}
+          className={`px-2.5 py-1 rounded-lg text-xs transition-colors ${
+            sortBy === opt.value ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:text-white'
+          }`}>
+          {opt.label}
+        </button>
+      ))}
+    </div>
     <div className="overflow-x-auto rounded-xl border border-gray-700">
       <table className="w-full text-sm text-left">
         <thead>
@@ -208,6 +242,7 @@ export default function OpportunitiesTable({ opportunities, selectedSport, onBet
           })}
         </tbody>
       </table>
+    </div>
     </div>
   );
 }
