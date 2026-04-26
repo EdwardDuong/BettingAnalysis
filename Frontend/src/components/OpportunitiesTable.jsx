@@ -28,14 +28,17 @@ const SORT_OPTIONS = [
   { value: 'stake',    label: 'Stake'       },
 ];
 
-export default function OpportunitiesTable({ opportunities, selectedSport, onBetPlaced }) {
+export default function OpportunitiesTable({ opportunities, selectedSport, onBetPlaced, onToast }) {
   const [placing,  setPlacing]  = useState(null);
   const [feedback, setFeedback] = useState({});
   const [sortBy,   setSortBy]   = useState('ai');
+  const [search,   setSearch]   = useState('');
 
   const filtered = (selectedSport === 'All'
     ? opportunities
     : opportunities.filter(o => o.sportType === selectedSport)
+  ).filter(o => !search.trim() ||
+    [o.homeTeam, o.awayTeam, o.team].some(s => s?.toLowerCase().includes(search.toLowerCase()))
   ).slice().sort((a, b) => {
     switch (sortBy) {
       case 'edge':    return (b.edge ?? 0) - (a.edge ?? 0);
@@ -61,9 +64,11 @@ export default function OpportunitiesTable({ opportunities, selectedSport, onBet
       const res = await placeBet(opp.matchId, opp.outcome, null);
       const warn = res.warnings?.length ? ` ⚠️ ${res.warnings[0]}` : '';
       setFeedback(f => ({ ...f, [key]: `✅ Placed $${res.bet?.stake?.toFixed(2)}${warn}` }));
+      onToast?.(`Bet placed on ${opp.team} — $${res.bet?.stake?.toFixed(2)}`, 'success');
       onBetPlaced();
     } catch (err) {
       setFeedback(f => ({ ...f, [key]: `❌ ${err.message}` }));
+      onToast?.(err.message, 'error');
     } finally {
       setPlacing(null);
     }
@@ -79,6 +84,16 @@ export default function OpportunitiesTable({ opportunities, selectedSport, onBet
 
   return (
     <div className="space-y-3">
+    <div className="flex items-center gap-3">
+      <input
+        type="text"
+        placeholder="Search team…"
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-44"
+      />
+      <span className="text-gray-500 text-xs flex-1">{filtered.length} match{filtered.length !== 1 ? 'es' : ''}</span>
+    </div>
     <div className="flex items-center gap-2 justify-end">
       <span className="text-gray-500 text-xs">Sort by:</span>
       {SORT_OPTIONS.map(opt => (

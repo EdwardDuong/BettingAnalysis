@@ -5,6 +5,7 @@ import BetHistoryTable    from './components/BetHistoryTable.jsx';
 import SettingsPanel      from './components/SettingsPanel.jsx';
 import ParlayPanel        from './components/ParlayPanel.jsx';
 import AnalyticsPanel     from './components/AnalyticsPanel.jsx';
+import Toast              from './components/Toast.jsx';
 import { getOpportunities, getHistory, getBankroll, getStats, refreshOdds } from './services/api.js';
 
 const SPORTS      = ['All', 'EPL', 'AFL', 'NRL', 'NBA', 'Esports'];
@@ -22,6 +23,11 @@ export default function App() {
   const [error,         setError]         = useState(null);
   const [lastRefresh,   setLastRefresh]   = useState(null);
   const [refreshing,    setRefreshing]    = useState(false);
+  const [toasts,        setToasts]        = useState([]);
+
+  const addToast = (message, type = 'info') =>
+    setToasts(t => [...t, { id: Date.now(), message, type }]);
+  const dismissToast = (id) => setToasts(t => t.filter(x => x.id !== id));
 
   const fetchAll = useCallback(async () => {
     try {
@@ -109,7 +115,7 @@ export default function App() {
           </div>
         )}
 
-        <BankrollPanel bankroll={bankroll} />
+        <BankrollPanel bankroll={bankroll} onReset={fetchAll} />
 
         {/* ── Main tabs ───────────────────────────────────────────── */}
         <div className="flex gap-1 bg-gray-800 p-1 rounded-xl w-fit">
@@ -174,6 +180,7 @@ export default function App() {
                 opportunities={opportunities}
                 selectedSport={sport}
                 onBetPlaced={fetchAll}
+                onToast={addToast}
               />
             )}
           </div>
@@ -193,6 +200,8 @@ export default function App() {
         {/* ── Settings ────────────────────────────────────────────── */}
         {mainTab === 'Settings' && <SettingsPanel />}
       </main>
+
+      <Toast toasts={toasts} onDismiss={dismissToast} />
 
       <footer className="text-center text-gray-600 text-xs py-8">
         Pre-match only · 1–6h window · Half-Kelly sizing · AI validated · 11 risk rules active
