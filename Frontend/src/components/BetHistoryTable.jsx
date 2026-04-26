@@ -5,9 +5,10 @@ const SPORT_EMOJI = { EPL: '⚽', AFL: '🏈', NRL: '🏉', NBA: '🏀', Esports
 const fmt = (n) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(n ?? 0);
 
 export default function BetHistoryTable({ history, onResultUpdated }) {
-  const [updating, setUpdating]     = useState(null);
-  const [closingOdds, setClosingOdds] = useState({});  // { [id]: string }
-  const [error, setError]           = useState(null);
+  const [updating,    setUpdating]    = useState(null);
+  const [closingOdds, setClosingOdds] = useState({});
+  const [error,       setError]       = useState(null);
+  const [search,      setSearch]      = useState('');
 
   const handleResult = async (id, result) => {
     setUpdating(id);
@@ -23,7 +24,12 @@ export default function BetHistoryTable({ history, onResultUpdated }) {
     }
   };
 
-  const settled   = history.filter(b => b.result !== 'Pending');
+  const displayed = search.trim()
+    ? history.filter(b =>
+        [b.homeTeam, b.awayTeam, b.team].some(s => s?.toLowerCase().includes(search.toLowerCase())))
+    : history;
+
+  const settled   = displayed.filter(b => b.result !== 'Pending');
   const totalPnL  = settled.reduce((s, b) => s + (b.pnL ?? 0), 0);
   const wins      = settled.filter(b => b.result === 'Win').length;
   const clvBets   = settled.filter(b => b.clv != null);
@@ -37,9 +43,18 @@ export default function BetHistoryTable({ history, onResultUpdated }) {
     <div className="space-y-4">
       {error && <div className="bg-red-900 border border-red-600 text-red-200 rounded-lg px-4 py-2 text-sm">{error}</div>}
 
-      {/* Summary + export */}
-      <div className="flex items-center justify-between">
-        <span className="text-gray-400 text-sm">{history.length} total bet{history.length !== 1 ? 's' : ''}</span>
+      {/* Summary + search + export */}
+      <div className="flex items-center gap-3">
+        <input
+          type="text"
+          placeholder="Search team…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-48"
+        />
+        <span className="text-gray-500 text-xs flex-1">
+          {displayed.length} of {history.length} bet{history.length !== 1 ? 's' : ''}
+        </span>
         <button
           onClick={exportCsv}
           className="px-3 py-1.5 text-xs rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors"
@@ -82,7 +97,7 @@ export default function BetHistoryTable({ history, onResultUpdated }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-700">
-            {history.map(bet => (
+            {displayed.map(bet => (
               <tr key={bet.id} className="bg-gray-800 hover:bg-gray-750 transition-colors">
                 <td className="px-3 py-3 text-lg">{SPORT_EMOJI[bet.sportType] ?? '🏆'}</td>
 
