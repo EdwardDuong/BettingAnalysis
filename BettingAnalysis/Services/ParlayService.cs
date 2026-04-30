@@ -33,8 +33,12 @@ public class ParlayService
     /// </summary>
     public List<ParlayCombo> BuildCombos(List<BetOpportunity> opportunities)
     {
+        // Exclude drifting lines and suspicious high-edge selections — parlay
+        // compounds risk across legs, so conservative filtering is essential.
         var eligible = opportunities
-            .Where(o => o.AiValidation?.Decision == "GOOD_BET")
+            .Where(o => o.AiValidation?.Decision == "GOOD_BET"
+                && o.LineMovementStatus != "Drifting"
+                && !(o.AiValidation?.Flags?.Contains(ValidationFlags.HighEdge) ?? false))
             .OrderByDescending(o => o.AiValidation?.Score ?? 0)
             .ThenByDescending(o => o.Edge)
             .Take(MaxEligible)
