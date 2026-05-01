@@ -32,6 +32,11 @@ export const updateResult = (id, result, closingOdds = null) =>
 export const saveSettings = (config) =>
   request('/settings', { method: 'PUT', body: JSON.stringify(config) });
 
+export const resetBankroll = (newAmount = null) =>
+  request('/bankroll/reset', { method: 'POST', body: JSON.stringify(newAmount) });
+
+export const getPrediction = (matchId) => request(`/prediction/${matchId}`);
+
 export const exportCsv = () => {
   const a = document.createElement('a');
   a.href = `${BASE}/export/csv`;
