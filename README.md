@@ -20,12 +20,19 @@ BettingAnalysis/
 │   │   ├── Bankroll.cs
 │   │   └── PlaceBetRequest.cs
 │   ├── Services/
-│   │   ├── PoissonService.cs       — Outcome probabilities
-│   │   ├── EdgeService.cs          — Model edge vs implied prob
-│   │   ├── OddsService.cs          — Mock pre-match fixtures
-│   │   ├── BetSizingService.cs     — Half-Kelly criterion
-│   │   ├── BankrollService.cs      — Risk rule enforcement
-│   │   └── BettingLoggingService.cs — Audit trail
+│   │   ├── PoissonService.cs        — Outcome probabilities
+│   │   ├── EdgeService.cs           — Model edge vs implied prob
+│   │   ├── OddsService.cs           — Real + mock pre-match odds
+│   │   ├── TheOddsApiService.cs     — The Odds API integration
+│   │   ├── BetSizingService.cs      — Half-Kelly criterion
+│   │   ├── BankrollService.cs       — Bankroll state and limits
+│   │   ├── BettingLoggingService.cs — Audit trail and stats
+│   │   ├── ValidationService.cs     — 11-rule validation gate
+│   │   ├── AIValidatorService.cs    — Scoring and GOOD/RISKY/SKIP
+│   │   ├── LineMovementService.cs   — Steam/drift detection
+│   │   ├── CLVService.cs            — Closing line value
+│   │   ├── ParlayService.cs         — Multi-leg combo builder
+│   │   └── BettingConfigService.cs  — Live-editable config
 │   ├── Program.cs
 │   └── appsettings.json
 │
@@ -85,14 +92,24 @@ npm run dev
 
 ## API Endpoints
 
-| Method | Path                      | Description                                        |
-|--------|---------------------------|----------------------------------------------------|
-| GET    | `/Betting/opportunities`  | Pre-match value bets (edge ≥ 5%, Rule #1 & #2)    |
-| POST   | `/Betting/place`          | Simulate placing a bet with full risk checks       |
-| GET    | `/Betting/history`        | All placed bets (Rule #9 audit log)                |
-| GET    | `/Betting/bankroll`       | Current bankroll state and limit flags             |
-| POST   | `/Betting/result/{id}`    | Record Win/Loss and update bankroll (Rule #10)     |
-| GET    | `/Betting/stats`          | Aggregate win rate and PnL                         |
+| Method | Path                        | Description                                        |
+|--------|-----------------------------|----------------------------------------------------|
+| GET    | `/Betting/opportunities`    | Pre-match value bets (edge ≥ 5%, Rule #1 & #2)    |
+| POST   | `/Betting/place`            | Place a bet with full validation gate              |
+| GET    | `/Betting/history`          | All placed bets (audit log)                        |
+| GET    | `/Betting/bankroll`         | Current bankroll state and limit flags             |
+| POST   | `/Betting/bankroll/reset`   | Reset bankroll counters (new session)              |
+| POST   | `/Betting/result/{id}`      | Record Win/Loss and update bankroll                |
+| GET    | `/Betting/stats`            | Aggregate win rate and PnL                         |
+| GET    | `/Betting/stats/sport`      | Win/loss/PnL breakdown per sport                   |
+| GET    | `/Betting/parlays`          | Suggested 2–4 leg parlay combos from GOOD_BETs     |
+| GET    | `/Betting/prediction/{id}`  | Poisson model detail for a single match            |
+| GET    | `/Betting/export/csv`       | Download full bet history as CSV                   |
+| GET    | `/Betting/settings`         | Current live config                                |
+| PUT    | `/Betting/settings`         | Update config (applies immediately, no restart)    |
+| POST   | `/Betting/refresh`          | Invalidate odds cache                              |
+| GET    | `/Betting/rejected`         | Bets blocked by validation gate                    |
+| GET    | `/health`                   | Health check                                       |
 
 ### Example: Place a bet
 
