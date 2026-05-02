@@ -1,10 +1,20 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { resetBankroll } from '../services/api.js';
 
 const fmt = (n) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(n ?? 0);
 const pct = (used, limit) => limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
 
-export default function BankrollPanel({ bankroll }) {
+export default function BankrollPanel({ bankroll, onReset }) {
+  const [resetting, setResetting] = useState(false);
+
   if (!bankroll) return <div className="bg-gray-800 rounded-xl p-4 animate-pulse h-40" />;
+
+  const handleReset = async () => {
+    if (!window.confirm('Reset bankroll? This clears all loss counters.')) return;
+    setResetting(true);
+    try { await resetBankroll(); onReset?.(); }
+    finally { setResetting(false); }
+  };
 
   const dailyPct     = pct(bankroll.dailyLossUsed,   bankroll.dailyLossLimit);
   const drawdownPct  = pct(bankroll.cumulativeLoss,   bankroll.stopLossLimit);
@@ -57,6 +67,14 @@ export default function BankrollPanel({ bankroll }) {
           {bankroll.consecutiveLosses}/{bankroll.maxConsecutiveLosses}
           {bankroll.isTiltProtectionActive ? ' — TILT PROTECTION ACTIVE' : ''}
         </span>
+      </div>
+
+      {/* ── Reset ────────────────────────────────────────────────── */}
+      <div className="flex justify-end">
+        <button onClick={handleReset} disabled={resetting}
+          className="px-3 py-1.5 text-xs rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-400 hover:text-white disabled:opacity-50 transition-colors">
+          {resetting ? 'Resetting…' : '↺ Reset Session'}
+        </button>
       </div>
 
       {/* ── Progress bars ─────────────────────────────────────────── */}
