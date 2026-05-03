@@ -1,24 +1,34 @@
 using BettingAnalysis.Models;
+using System.Text.Json;
 
 namespace BettingAnalysis.Services;
 
 /// <summary>
 /// Audit log for all bet activity — placed, pending, settled, and rejected.
-/// Also provides computed stats used by ValidationService and BankrollPanel.
-///
-/// In production: replace with EF Core + SQL for persistence across restarts.
+/// History is persisted to a JSON file so it survives application restarts.
+/// Path defaults to bet-history.json in the working directory; override via
+/// BettingSettings:HistoryFilePath in appsettings.json.
 /// </summary>
 public class BettingLoggingService
 {
     private readonly List<BetHistory>    _history  = new();
     private readonly List<RejectedBet>   _rejected = new();
     private readonly object              _lock     = new();
+    private readonly string              _path;
+
+    private static readonly JsonSerializerOptions _json = new() { WriteIndented = true };
+
+    public BettingLoggingService(IConfiguration config, ILogger<BettingLoggingService> logger)
+    {
+        _path = config.GetValue<string>("BettingSettings:HistoryFilePath") ?? "bet-history.json";
+        Load(logger);
+    }
 
     // ── Placed bets ───────────────────────────────────────────────────────────
 
     public void LogBet(BetHistory bet)
     {
-        lock (_lock) { _history.Add(bet); }
+        lock (_lock) { _history.Add(bet); Save(); }
     }
 
     public List<BetHistory> GetHistory()
@@ -37,10 +47,11 @@ public class BettingLoggingService
         {
             var bet = _history.FirstOrDefault(b => b.Id == id);
             if (bet is null) return;
-            bet.Result       = result;
-            bet.PnL          = pnl;
-            bet.ClosingOdds  = closingOdds;
-            bet.CLV          = clv;
+            bet.Result      = result;
+            bet.PnL         = pnl;
+            bet.ClosingOdds = closingOdds;
+            bet.CLV         = clv;
+            Save();
         }
     }
 
@@ -68,33 +79,24 @@ public class BettingLoggingService
 
     // ── Computed stats used by ValidationService ───────────────────────────────
 
-    /// <summary>Sum of stakes on all Pending bets (current open exposure).</summary>
     public decimal GetTotalExposure()
     {
         lock (_lock) { return _history.Where(b => b.Result == "Pending").Sum(b => b.Stake); }
     }
 
-    /// <summary>Count of pending bets on a specific match (correlation check).</summary>
     public int CountBetsOnMatch(string matchId)
     {
         lock (_lock) { return _history.Count(b => b.MatchId == matchId && b.Result == "Pending"); }
     }
 
-    /// <summary>
-    /// Count consecutive losses at the tail of settled bet history.
-    /// Pending bets are ignored (not yet resolved).
-    /// </summary>
     public int GetConsecutiveLosses()
     {
         lock (_lock)
         {
-            var settled = _history
-                .Where(b => b.Result is "Win" or "Loss")
-                .OrderByDescending(b => b.DateTimePlaced)
-                .ToList();
-
             int count = 0;
-            foreach (var bet in settled)
+            foreach (var bet in _history
+                .Where(b => b.Result is "Win" or "Loss")
+                .OrderByDescending(b => b.DateTimePlaced))
             {
                 if (bet.Result == "Loss") count++;
                 else break;
@@ -103,7 +105,6 @@ public class BettingLoggingService
         }
     }
 
-    /// <summary>Win/loss/PnL breakdown per sport, for the analytics view.</summary>
     public List<object> GetStatsBySport()
     {
         lock (_lock)
@@ -113,14 +114,14 @@ public class BettingLoggingService
                 .GroupBy(b => b.SportType.ToString())
                 .Select(g => (object)new
                 {
-                    Sport   = g.Key,
-                    Total   = g.Count(),
-                    Wins    = g.Count(b => b.Result == "Win"),
-                    Losses  = g.Count(b => b.Result == "Loss"),
-                    WinRate = g.Count() > 0 ? Math.Round((double)g.Count(b => b.Result == "Win") / g.Count() * 100, 1) : 0,
+                    Sport    = g.Key,
+                    Total    = g.Count(),
+                    Wins     = g.Count(b => b.Result == "Win"),
+                    Losses   = g.Count(b => b.Result == "Loss"),
+                    WinRate  = g.Count() > 0 ? Math.Round((double)g.Count(b => b.Result == "Win") / g.Count() * 100, 1) : 0,
                     TotalPnL = g.Sum(b => b.PnL),
-                    AvgEdge = g.Count() > 0 ? Math.Round(g.Average(b => (double)b.Edge) * 100, 1) : 0,
-                    AvgCLV  = g.Any(b => b.CLV.HasValue)
+                    AvgEdge  = g.Count() > 0 ? Math.Round(g.Average(b => (double)b.Edge) * 100, 1) : 0,
+                    AvgCLV   = g.Any(b => b.CLV.HasValue)
                         ? Math.Round(g.Where(b => b.CLV.HasValue).Average(b => b.CLV!.Value), 2)
                         : (double?)null,
                 })
@@ -128,7 +129,6 @@ public class BettingLoggingService
         }
     }
 
-    /// <summary>Aggregate stats for the dashboard summary bar.</summary>
     public (int Total, int Wins, int Losses, decimal TotalPnL, double? AvgCLV) GetStats()
     {
         lock (_lock)
@@ -140,14 +140,40 @@ public class BettingLoggingService
                     settled.Count(b => b.Result == "Loss"), settled.Sum(b => b.PnL), avgCLV);
         }
     }
+
+    // ── File persistence ──────────────────────────────────────────────────────
+
+    private void Load(ILogger logger)
+    {
+        try
+        {
+            if (!File.Exists(_path)) return;
+            var loaded = JsonSerializer.Deserialize<List<BetHistory>>(File.ReadAllText(_path));
+            if (loaded?.Count > 0)
+            {
+                _history.AddRange(loaded);
+                logger.LogInformation("Loaded {Count} bets from {Path}", loaded.Count, _path);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("Could not load bet history: {E}", ex.Message);
+        }
+    }
+
+    private void Save()
+    {
+        try { File.WriteAllText(_path, JsonSerializer.Serialize(_history, _json)); }
+        catch { /* non-fatal — in-memory state is still correct */ }
+    }
 }
 
 /// <summary>Record of a bet that was blocked by ValidationService.</summary>
 public class RejectedBet
 {
-    public string MatchId   { get; set; } = string.Empty;
-    public string Team      { get; set; } = string.Empty;
-    public string Outcome   { get; set; } = string.Empty;
-    public List<string> Reasons { get; set; } = new();
-    public DateTime Timestamp   { get; set; }
+    public string       MatchId   { get; set; } = string.Empty;
+    public string       Team      { get; set; } = string.Empty;
+    public string       Outcome   { get; set; } = string.Empty;
+    public List<string> Reasons   { get; set; } = new();
+    public DateTime     Timestamp { get; set; }
 }
