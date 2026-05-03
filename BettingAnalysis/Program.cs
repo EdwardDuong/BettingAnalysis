@@ -28,6 +28,7 @@ builder.Services.AddSingleton<AIValidatorService>();
 builder.Services.AddSingleton<OddsService>();
 builder.Services.AddSingleton<ValidationService>();
 builder.Services.AddSingleton<ParlayService>();
+builder.Services.AddHostedService<OddsRefreshService>();
 
 // ── CORS: allow Vite dev server ───────────────────────────────────────────────
 builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
