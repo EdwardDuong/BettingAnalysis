@@ -159,6 +159,34 @@ public class OddsService
                 PreviousHomeOdds=1.72m, PreviousAwayOdds=2.22m,
                 MatchStartTime=now.AddHours(5), SportType=SportType.Esports, HomeLambda=1.75, AwayLambda=1.10
             },
+            // EPL — third match, draw value
+            new() {
+                MatchId="EPL-003", HomeTeam="Tottenham",        AwayTeam="Aston Villa",
+                HomeOdds=2.50m,  DrawOdds=3.20m,  AwayOdds=2.90m,
+                PreviousHomeOdds=2.55m, PreviousDrawOdds=3.15m, PreviousAwayOdds=2.95m,
+                MatchStartTime=now.AddHours(3.5), SportType=SportType.EPL, HomeLambda=1.60, AwayLambda=1.35
+            },
+            // NBA — away steaming
+            new() {
+                MatchId="NBA-003", HomeTeam="Denver Nuggets",   AwayTeam="Phoenix Suns",
+                HomeOdds=1.75m, DrawOdds=null, AwayOdds=2.20m,
+                PreviousHomeOdds=1.78m, PreviousAwayOdds=2.35m,                           // Away steaming ✅
+                MatchStartTime=now.AddHours(2.5), SportType=SportType.NBA, HomeLambda=1.55, AwayLambda=1.30
+            },
+            // NRL — third match
+            new() {
+                MatchId="NRL-003", HomeTeam="Sydney Roosters",  AwayTeam="South Sydney Rabbitohs",
+                HomeOdds=1.90m, DrawOdds=null, AwayOdds=2.00m,
+                PreviousHomeOdds=1.88m, PreviousAwayOdds=2.02m,
+                MatchStartTime=now.AddHours(4.5), SportType=SportType.NRL, HomeLambda=1.60, AwayLambda=1.45
+            },
+            // Esports — third match, home drifting
+            new() {
+                MatchId="ESP-003", HomeTeam="Cloud9",           AwayTeam="ENCE",
+                HomeOdds=2.30m, DrawOdds=null, AwayOdds=1.70m,
+                PreviousHomeOdds=2.10m, PreviousAwayOdds=1.82m,                           // Home drifting ❌
+                MatchStartTime=now.AddHours(3), SportType=SportType.Esports, HomeLambda=1.15, AwayLambda=1.65
+            },
             // Match outside 6h window — excluded by timing rule
             new() {
                 MatchId="EPL-FAR", HomeTeam="Brighton",         AwayTeam="Brentford",
