@@ -55,6 +55,17 @@ export default function App() {
     return () => clearInterval(id);
   }, [fetchAll]);
 
+  // Keyboard shortcut: R = fetch new odds
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === 'r' && !e.ctrlKey && !e.metaKey && e.target.tagName !== 'INPUT') {
+        handleFetchNewOdds();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   const handleFetchNewOdds = async () => {
     setRefreshing(true);
     try { await refreshOdds(); await fetchAll(); }
