@@ -36,6 +36,8 @@ export default function BetHistoryTable({ history, onResultUpdated }) {
   const avgCLV    = clvBets.length ? clvBets.reduce((s, b) => s + b.clv, 0) / clvBets.length : null;
   const winRate   = settled.length ? (wins / settled.length * 100).toFixed(1) : '—';
 
+  const pendingCount = history.filter(b => b.result === 'Pending').length;
+
   if (history.length === 0)
     return <div className="text-center text-gray-500 py-16 text-sm">No bets placed yet.</div>;
 
@@ -54,6 +56,11 @@ export default function BetHistoryTable({ history, onResultUpdated }) {
         />
         <span className="text-gray-500 text-xs flex-1">
           {displayed.length} of {history.length} bet{history.length !== 1 ? 's' : ''}
+          {pendingCount > 0 && (
+            <span className="ml-2 bg-orange-600 text-white text-xs rounded-full px-1.5 py-0.5">
+              {pendingCount} pending
+            </span>
+          )}
         </span>
         <button
           onClick={exportCsv}
