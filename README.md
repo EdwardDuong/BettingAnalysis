@@ -201,6 +201,19 @@ Then calibrate `HomeLambda` / `AwayLambda` from a separate stats API
 
 ---
 
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| Frontend shows "API error" | Backend not running | Run `dotnet run` in `BettingAnalysis/` |
+| All opportunities list empty | Stop-loss triggered, or no matches in 1–6h window | Check `/Betting/bankroll` for `isStopLossTriggered`; use mock data outside AU hours |
+| Odds never refresh | Cache still valid (30 min TTL) | Click "⟳ New Odds" or call `POST /Betting/refresh` |
+| Bet rejected with exposure error | Too many open (Pending) bets | Settle pending bets via History tab before placing new ones |
+| Parlay tab shows nothing | Fewer than 2 GOOD_BET opportunities | Lower `edgeThreshold` in Settings or wait for better odds |
+| Contribution graph not updating | Commit email mismatch | Ensure Git email matches a verified GitHub account email |
+
+---
+
 ## Production Checklist
 
 - [ ] Replace in-memory stores with EF Core + SQL Server/PostgreSQL
