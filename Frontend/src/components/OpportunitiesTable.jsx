@@ -29,10 +29,13 @@ const SORT_OPTIONS = [
 ];
 
 export default function OpportunitiesTable({ opportunities, selectedSport, onBetPlaced, onToast }) {
-  const [placing,  setPlacing]  = useState(null);
-  const [feedback, setFeedback] = useState({});
-  const [sortBy,   setSortBy]   = useState('ai');
-  const [search,   setSearch]   = useState('');
+  const [placing,   setPlacing]   = useState(null);
+  const [feedback,  setFeedback]  = useState({});
+  const [sortBy,    setSortBy]    = useState('ai');
+  const [search,    setSearch]    = useState('');
+  const [expanded,  setExpanded]  = useState({});
+
+  const toggleExpand = (key) => setExpanded(e => ({ ...e, [key]: !e[key] }));
 
   const filtered = (selectedSport === 'All'
     ? opportunities
@@ -235,6 +238,19 @@ export default function OpportunitiesTable({ opportunities, selectedSport, onBet
                   <tr className="bg-gray-900">
                     <td colSpan={13} className="px-3 py-1.5 text-xs text-gray-400 italic">
                       AI: {ai.reason}
+                      <button onClick={() => toggleExpand(key)}
+                        className="ml-3 text-blue-400 hover:text-blue-300 not-italic">
+                        {expanded[key] ? '▲ hide' : '▼ model detail'}
+                      </button>
+                    </td>
+                  </tr>
+                )}
+
+                {/* Probability breakdown */}
+                {expanded[key] && (
+                  <tr className="bg-gray-950">
+                    <td colSpan={13} className="px-3 py-2">
+                      <ProbBreakdown opp={opp} />
                     </td>
                   </tr>
                 )}
@@ -285,6 +301,37 @@ function LineTag({ status }) {
   if (status === 'Steaming') return <span className="text-green-400">↓ Steam</span>;
   if (status === 'Drifting') return <span className="text-red-400">↑ Drift</span>;
   return <span className="text-gray-500">→ Stable</span>;
+}
+
+function ProbBreakdown({ opp }) {
+  const implied = opp.odds > 0 ? (1 / opp.odds) : 0;
+  const model   = opp.probability ?? 0;
+  const diff    = model - implied;
+  return (
+    <div className="flex flex-wrap gap-6 text-xs text-gray-400">
+      <div>
+        <span className="text-gray-500">Model prob </span>
+        <span className="text-white font-mono font-bold">{(model * 100).toFixed(1)}%</span>
+      </div>
+      <div>
+        <span className="text-gray-500">Implied prob </span>
+        <span className="text-white font-mono">{(implied * 100).toFixed(1)}%</span>
+      </div>
+      <div>
+        <span className="text-gray-500">Difference </span>
+        <span className={`font-mono font-bold ${diff >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+          {diff >= 0 ? '+' : ''}{(diff * 100).toFixed(1)}pp
+        </span>
+      </div>
+      <div>
+        <span className="text-gray-500">Odds </span>
+        <span className="text-yellow-300 font-mono">{opp.odds?.toFixed(2)}</span>
+        {opp.previousOdds && (
+          <span className="text-gray-600 ml-1">(was {opp.previousOdds?.toFixed(2)})</span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function KickoffTime({ utcTime, hours }) {
