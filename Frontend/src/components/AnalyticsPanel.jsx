@@ -17,12 +17,20 @@ export default function AnalyticsPanel({ history }) {
   }, []);
 
   const settled = (history ?? []).filter(b => b.result !== 'Pending');
-
-  // Build a 30-day cumulative PnL series from history
   const pnlTimeline = buildPnlTimeline(settled);
+  const roi7d  = rollingROI(settled, 7);
+  const roi30d = rollingROI(settled, 30);
 
   return (
     <div className="space-y-6">
+      {/* ── Rolling ROI cards ─────────────────────────────── */}
+      {(roi7d !== null || roi30d !== null) && (
+        <div className="grid grid-cols-2 gap-3">
+          <RoiCard label="7-day ROI" value={roi7d} />
+          <RoiCard label="30-day ROI" value={roi30d} />
+        </div>
+      )}
+
       {/* ── Cumulative PnL timeline ────────────────────────── */}
       <Section title="Cumulative P&L (last 30 days)">
         {pnlTimeline.length === 0
@@ -192,6 +200,28 @@ function EdgeDistribution({ bets }) {
       })}
     </div>
   );
+}
+
+function RoiCard({ label, value }) {
+  if (value === null) return null;
+  const color = value >= 5 ? 'text-green-400' : value >= 0 ? 'text-yellow-400' : 'text-red-400';
+  return (
+    <div className="bg-gray-700 rounded-xl p-4 text-center">
+      <p className="text-gray-400 text-xs mb-1">{label}</p>
+      <p className={`font-bold text-xl ${color}`}>
+        {value >= 0 ? '+' : ''}{value.toFixed(1)}%
+      </p>
+    </div>
+  );
+}
+
+function rollingROI(bets, days) {
+  const cutoff = Date.now() - days * 86400000;
+  const recent = bets.filter(b => new Date(b.dateTimePlaced) >= cutoff);
+  if (!recent.length) return null;
+  const staked = recent.reduce((s, b) => s + (b.stake ?? 0), 0);
+  const pnl    = recent.reduce((s, b) => s + (b.pnL   ?? 0), 0);
+  return staked > 0 ? (pnl / staked) * 100 : 0;
 }
 
 function buildPnlTimeline(settled) {
