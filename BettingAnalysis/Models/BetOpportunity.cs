@@ -34,6 +34,10 @@ public class BetOpportunity
     /// <summary>Soft warnings that don't block the bet.</summary>
     public List<string> ValidationWarnings { get; set; } = new();
 
+    // ── Confidence ────────────────────────────────────────────────────────────
+    /// <summary>"High" | "Medium" | "Low" — derived from edge and model probability.</summary>
+    public string ConfidenceLevel { get; set; } = "Low";
+
     // ── AI Validator output ───────────────────────────────────────────────────
     /// <summary>
     /// Scoring, decision, and flags from AIValidatorService.

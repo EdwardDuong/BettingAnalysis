@@ -124,6 +124,7 @@ public class BettingController : ControllerBase
                     IsHighRisk          = edgeVal >= config.HighEdgeThreshold || movement == LineMovement.Drifting,
                     RequiresManualCheck = edgeVal >= config.HighEdgeThreshold,
                     ValidationWarnings  = preCheck.Warnings,
+                    ConfidenceLevel     = ComputeConfidence(prob, edgeVal),
                 });
             }
         }
@@ -510,6 +511,10 @@ public class BettingController : ControllerBase
 
     private static string Escape(string s) =>
         s.Contains(',') || s.Contains('"') ? $"\"{s.Replace("\"", "\"\"")}\"" : s;
+
+    private static string ComputeConfidence(double prob, double edge) =>
+        edge >= 0.15 && prob >= 0.60 ? "High" :
+        edge >= 0.10 || prob >= 0.58 ? "Medium" : "Low";
 
     // ─────────────────────────────────────────────────────────────────────────
     // Helpers
