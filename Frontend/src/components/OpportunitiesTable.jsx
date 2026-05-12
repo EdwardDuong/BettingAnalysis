@@ -183,9 +183,12 @@ export default function OpportunitiesTable({ opportunities, selectedSport, onBet
                     {((opp.probability ?? 0) * 100).toFixed(1)}%
                   </td>
 
-                  {/* Edge */}
+                  {/* Edge + confidence */}
                   <td className="px-3 py-3 text-right">
-                    <EdgeBadge edge={opp.edge ?? 0} />
+                    <div className="space-y-1 items-end flex flex-col">
+                      <EdgeBadge edge={opp.edge ?? 0} />
+                      {opp.confidenceLevel && <ConfidenceBadge level={opp.confidenceLevel} />}
+                    </div>
                   </td>
 
                   {/* Stake */}
@@ -287,6 +290,19 @@ function ScoreBar({ score }) {
       </div>
       <span className="text-xs text-gray-400 font-mono">{score}/10</span>
     </div>
+  );
+}
+
+function ConfidenceBadge({ level }) {
+  const styles = {
+    High:   'bg-emerald-800 text-emerald-200',
+    Medium: 'bg-sky-800 text-sky-200',
+    Low:    'bg-gray-700 text-gray-400',
+  };
+  return (
+    <span className={`inline-block px-1.5 py-0.5 rounded text-xs ${styles[level] ?? styles.Low}`}>
+      {level}
+    </span>
   );
 }
 
