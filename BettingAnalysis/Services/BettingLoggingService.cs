@@ -105,6 +105,30 @@ public class BettingLoggingService
         }
     }
 
+    /// <summary>
+    /// Returns the current result streak: positive = win streak length, negative = loss streak length.
+    /// e.g. +3 means 3 consecutive wins; -2 means 2 consecutive losses.
+    /// </summary>
+    public int GetCurrentStreak()
+    {
+        lock (_lock)
+        {
+            var settled = _history
+                .Where(b => b.Result is "Win" or "Loss")
+                .OrderByDescending(b => b.DateTimePlaced)
+                .ToList();
+            if (settled.Count == 0) return 0;
+            var first = settled[0].Result;
+            int count = 0;
+            foreach (var bet in settled)
+            {
+                if (bet.Result != first) break;
+                count++;
+            }
+            return first == "Win" ? count : -count;
+        }
+    }
+
     public List<object> GetStatsBySport()
     {
         lock (_lock)

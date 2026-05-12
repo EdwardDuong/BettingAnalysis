@@ -285,15 +285,17 @@ public class BettingController : ControllerBase
     public ActionResult GetStats()
     {
         var (total, wins, losses, totalPnL, avgCLV) = _log.GetStats();
+        var streak = _log.GetCurrentStreak();
         return Ok(new
         {
-            Total    = total,
-            Wins     = wins,
-            Losses   = losses,
-            WinRate  = total > 0 ? Math.Round((double)wins / total * 100, 1) : 0,
-            TotalPnL = totalPnL,
-            AvgCLV   = avgCLV.HasValue ? Math.Round(avgCLV.Value, 2) : (double?)null,
-            CLVLabel = avgCLV.HasValue ? _clv.Interpret(avgCLV.Value) : "No data yet"
+            Total         = total,
+            Wins          = wins,
+            Losses        = losses,
+            WinRate       = total > 0 ? Math.Round((double)wins / total * 100, 1) : 0,
+            TotalPnL      = totalPnL,
+            AvgCLV        = avgCLV.HasValue ? Math.Round(avgCLV.Value, 2) : (double?)null,
+            CLVLabel      = avgCLV.HasValue ? _clv.Interpret(avgCLV.Value) : "No data yet",
+            CurrentStreak = streak,
         });
     }
 
