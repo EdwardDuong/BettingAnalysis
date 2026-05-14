@@ -100,6 +100,13 @@ export default function App() {
                   />
                 )}
                 <Pill label="PnL" value={`$${(stats.totalPnL ?? 0).toFixed(0)}`} color={stats.totalPnL >= 0 ? 'text-green-400' : 'text-red-400'} />
+                {stats.currentStreak != null && stats.currentStreak !== 0 && (
+                  <Pill
+                    label={stats.currentStreak > 0 ? 'W Streak' : 'L Streak'}
+                    value={`${Math.abs(stats.currentStreak)}`}
+                    color={stats.currentStreak > 0 ? 'text-green-400' : 'text-red-400'}
+                  />
+                )}
               </div>
             )}
             {lastRefresh && (
