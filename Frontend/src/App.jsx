@@ -5,11 +5,12 @@ import BetHistoryTable    from './components/BetHistoryTable.jsx';
 import SettingsPanel      from './components/SettingsPanel.jsx';
 import ParlayPanel        from './components/ParlayPanel.jsx';
 import AnalyticsPanel     from './components/AnalyticsPanel.jsx';
+import RejectedBetsPanel  from './components/RejectedBetsPanel.jsx';
 import Toast              from './components/Toast.jsx';
 import { getOpportunities, getHistory, getBankroll, getStats, refreshOdds } from './services/api.js';
 
 const SPORTS      = ['All', 'EPL', 'AFL', 'NRL', 'NBA', 'Esports'];
-const MAIN_TABS   = ['Opportunities', 'Parlays', 'History', 'Analytics', 'Settings'];
+const MAIN_TABS   = ['Opportunities', 'Parlays', 'History', 'Analytics', 'Rejected', 'Settings'];
 const SPORT_EMOJI = { EPL: '⚽', AFL: '🏈', NRL: '🏉', NBA: '🏀', Esports: '🎮', All: '🌐' };
 
 export default function App() {
@@ -214,6 +215,9 @@ export default function App() {
 
         {/* ── Analytics ───────────────────────────────────────────── */}
         {mainTab === 'Analytics' && <AnalyticsPanel history={history} />}
+
+        {/* ── Rejected ────────────────────────────────────────────── */}
+        {mainTab === 'Rejected' && <RejectedBetsPanel />}
 
         {/* ── Settings ────────────────────────────────────────────── */}
         {mainTab === 'Settings' && <SettingsPanel />}
