@@ -34,6 +34,7 @@ export default function OpportunitiesTable({ opportunities, selectedSport, onBet
   const [sortBy,    setSortBy]    = useState('ai');
   const [search,    setSearch]    = useState('');
   const [expanded,  setExpanded]  = useState({});
+  const [minOdds,   setMinOdds]   = useState(0);
 
   const toggleExpand = (key) => setExpanded(e => ({ ...e, [key]: !e[key] }));
 
@@ -42,7 +43,8 @@ export default function OpportunitiesTable({ opportunities, selectedSport, onBet
     : opportunities.filter(o => o.sportType === selectedSport)
   ).filter(o => !search.trim() ||
     [o.homeTeam, o.awayTeam, o.team].some(s => s?.toLowerCase().includes(search.toLowerCase()))
-  ).slice().sort((a, b) => {
+  ).filter(o => minOdds === 0 || (o.odds ?? 0) >= minOdds)
+  .slice().sort((a, b) => {
     switch (sortBy) {
       case 'edge':    return (b.edge ?? 0) - (a.edge ?? 0);
       case 'odds':    return (b.odds ?? 0) - (a.odds ?? 0);
@@ -95,6 +97,17 @@ export default function OpportunitiesTable({ opportunities, selectedSport, onBet
         onChange={e => setSearch(e.target.value)}
         className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-44"
       />
+      <select
+        value={minOdds}
+        onChange={e => setMinOdds(Number(e.target.value))}
+        className="bg-gray-700 border border-gray-600 rounded-lg px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-blue-500"
+      >
+        <option value={0}>All odds</option>
+        <option value={1.5}>≥ 1.50</option>
+        <option value={2.0}>≥ 2.00</option>
+        <option value={2.5}>≥ 2.50</option>
+        <option value={3.0}>≥ 3.00</option>
+      </select>
       <span className="text-gray-500 text-xs flex-1">{filtered.length} match{filtered.length !== 1 ? 'es' : ''}</span>
     </div>
     <div className="flex items-center gap-2 justify-end">
