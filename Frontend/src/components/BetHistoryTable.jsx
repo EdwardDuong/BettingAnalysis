@@ -104,8 +104,14 @@ export default function BetHistoryTable({ history, onResultUpdated }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-700">
-            {displayed.map(bet => (
-              <tr key={bet.id} className="bg-gray-800 hover:bg-gray-750 transition-colors">
+            {displayed.map(bet => {
+              const clvRowBg = bet.clv != null && bet.result !== 'Pending'
+                ? bet.clv >= 3  ? 'bg-green-950 hover:bg-green-900'
+                : bet.clv < 0   ? 'bg-red-950 hover:bg-red-900'
+                : 'bg-gray-800 hover:bg-gray-750'
+                : 'bg-gray-800 hover:bg-gray-750';
+              return (
+              <tr key={bet.id} className={`${clvRowBg} transition-colors`}>
                 <td className="px-3 py-3 text-lg">{SPORT_EMOJI[bet.sportType] ?? '🏆'}</td>
 
                 <td className="px-3 py-3 text-white whitespace-nowrap text-xs">
@@ -177,7 +183,8 @@ export default function BetHistoryTable({ history, onResultUpdated }) {
                   ) : null}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
