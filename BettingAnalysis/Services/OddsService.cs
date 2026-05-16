@@ -187,6 +187,20 @@ public class OddsService
                 PreviousHomeOdds=2.10m, PreviousAwayOdds=1.82m,                           // Home drifting ❌
                 MatchStartTime=now.AddHours(3), SportType=SportType.Esports, HomeLambda=1.15, AwayLambda=1.65
             },
+            // AFL — away steaming (outsider shortening)
+            new() {
+                MatchId="AFL-003", HomeTeam="Sydney Swans",      AwayTeam="Carlton",
+                HomeOdds=2.05m, DrawOdds=null, AwayOdds=1.90m,
+                PreviousHomeOdds=2.08m, PreviousAwayOdds=2.15m,                           // Away steaming ✅
+                MatchStartTime=now.AddHours(2), SportType=SportType.AFL, HomeLambda=1.30, AwayLambda=1.60
+            },
+            // NBA — high home lambda, stable
+            new() {
+                MatchId="NBA-004", HomeTeam="Milwaukee Bucks",   AwayTeam="Chicago Bulls",
+                HomeOdds=1.65m, DrawOdds=null, AwayOdds=2.40m,
+                PreviousHomeOdds=1.65m, PreviousAwayOdds=2.40m,
+                MatchStartTime=now.AddHours(4), SportType=SportType.NBA, HomeLambda=1.90, AwayLambda=1.05
+            },
             // Match outside 6h window — excluded by timing rule
             new() {
                 MatchId="EPL-FAR", HomeTeam="Brighton",         AwayTeam="Brentford",
