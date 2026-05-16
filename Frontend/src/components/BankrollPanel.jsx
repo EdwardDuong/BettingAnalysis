@@ -22,6 +22,13 @@ export default function BankrollPanel({ bankroll, onReset }) {
   const availablePct = bankroll.totalBankroll > 0
     ? (bankroll.availableBankroll / bankroll.totalBankroll) * 100 : 100;
 
+  // Health score: 100 minus weighted risk factors
+  const healthScore = Math.max(0, Math.round(
+    100 - dailyPct * 0.30 - drawdownPct * 0.50 - exposurePct * 0.20
+  ));
+  const healthColor = healthScore >= 70 ? 'text-green-400' : healthScore >= 40 ? 'text-yellow-400' : 'text-red-400';
+  const healthLabel = healthScore >= 70 ? 'Healthy' : healthScore >= 40 ? 'Caution' : 'At Risk';
+
   return (
     <div className="bg-gray-800 border border-gray-700 rounded-xl p-5 space-y-4">
 
@@ -43,11 +50,12 @@ export default function BankrollPanel({ bankroll, onReset }) {
       )}
 
       {/* ── Stats grid ────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <Stat label="Total Bankroll"   value={fmt(bankroll.totalBankroll)}      color="text-white" />
         <Stat label="Available"        value={fmt(bankroll.availableBankroll)}   color="text-green-400" />
         <Stat label="Open Exposure"    value={fmt(bankroll.totalExposure)}       color={bankroll.isExposureLimitReached ? 'text-red-400' : 'text-blue-400'} />
         <Stat label="Max Stake / Bet"  value={fmt(bankroll.maxStakePerBet)}      color="text-purple-400" />
+        <Stat label={`Health · ${healthLabel}`} value={`${healthScore}/100`}    color={healthColor} />
       </div>
 
       {/* ── Tilt counter ──────────────────────────────────────────── */}
