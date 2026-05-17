@@ -101,6 +101,13 @@ export default function App() {
                   />
                 )}
                 <Pill label="PnL" value={`$${(stats.totalPnL ?? 0).toFixed(0)}`} color={stats.totalPnL >= 0 ? 'text-green-400' : 'text-red-400'} />
+                {stats.roi != null && (
+                  <Pill
+                    label="ROI"
+                    value={`${stats.roi >= 0 ? '+' : ''}${stats.roi?.toFixed(1)}%`}
+                    color={stats.roi >= 5 ? 'text-green-400' : stats.roi >= 0 ? 'text-yellow-400' : 'text-red-400'}
+                  />
+                )}
                 {stats.currentStreak != null && stats.currentStreak !== 0 && (
                   <Pill
                     label={stats.currentStreak > 0 ? 'W Streak' : 'L Streak'}
