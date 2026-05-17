@@ -153,6 +153,11 @@ public class BettingLoggingService
         }
     }
 
+    public decimal GetTotalStaked()
+    {
+        lock (_lock) { return _history.Where(b => b.Result != "Pending").Sum(b => b.Stake); }
+    }
+
     public (int Total, int Wins, int Losses, decimal TotalPnL, double? AvgCLV) GetStats()
     {
         lock (_lock)

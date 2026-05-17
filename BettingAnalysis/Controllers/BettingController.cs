@@ -285,7 +285,11 @@ public class BettingController : ControllerBase
     public ActionResult GetStats()
     {
         var (total, wins, losses, totalPnL, avgCLV) = _log.GetStats();
-        var streak = _log.GetCurrentStreak();
+        var streak      = _log.GetCurrentStreak();
+        var totalStaked = _log.GetTotalStaked();
+        var roi         = totalStaked > 0
+            ? Math.Round((double)(totalPnL / totalStaked) * 100, 1) : 0.0;
+
         return Ok(new
         {
             Total         = total,
@@ -293,6 +297,8 @@ public class BettingController : ControllerBase
             Losses        = losses,
             WinRate       = total > 0 ? Math.Round((double)wins / total * 100, 1) : 0,
             TotalPnL      = totalPnL,
+            TotalStaked   = totalStaked,
+            ROI           = roi,
             AvgCLV        = avgCLV.HasValue ? Math.Round(avgCLV.Value, 2) : (double?)null,
             CLVLabel      = avgCLV.HasValue ? _clv.Interpret(avgCLV.Value) : "No data yet",
             CurrentStreak = streak,
