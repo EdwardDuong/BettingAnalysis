@@ -39,9 +39,12 @@ BettingAnalysis/
 └── Frontend/                 ← React + Tailwind (frontend)
     ├── src/
     │   ├── components/
-    │   │   ├── BankrollPanel.jsx
-    │   │   ├── OpportunitiesTable.jsx
-    │   │   ├── BetHistoryTable.jsx
+    │   │   ├── BankrollPanel.jsx       — health score + utilisation bars
+    │   │   ├── OpportunitiesTable.jsx  — sort, search, min-odds filter, confidence badge
+    │   │   ├── BetHistoryTable.jsx     — CLV row colouring, CSV export
+    │   │   ├── AnalyticsPanel.jsx      — ROI cards, P&L chart, edge distribution
+    │   │   ├── ParlayPanel.jsx         — multi-leg combo builder
+    │   │   ├── RejectedBetsPanel.jsx   — validation gate rejection log
     │   │   └── SettingsPanel.jsx
     │   ├── services/api.js
     │   ├── App.jsx
@@ -100,7 +103,7 @@ npm run dev
 | GET    | `/Betting/bankroll`         | Current bankroll state and limit flags             |
 | POST   | `/Betting/bankroll/reset`   | Reset bankroll counters (new session)              |
 | POST   | `/Betting/result/{id}`      | Record Win/Loss and update bankroll                |
-| GET    | `/Betting/stats`            | Aggregate win rate and PnL                         |
+| GET    | `/Betting/stats`            | Aggregate win rate, PnL, ROI, and current streak   |
 | GET    | `/Betting/stats/sport`      | Win/loss/PnL breakdown per sport                   |
 | GET    | `/Betting/parlays`          | Suggested 2–4 leg parlay combos from GOOD_BETs     |
 | GET    | `/Betting/prediction/{id}`  | Poisson model detail for a single match            |
@@ -144,6 +147,26 @@ POST /Betting/result/{guid}
 | `StopLossPercent`         | 0.20      | #5   | Halt system if cumulative loss exceeds this      |
 | `EdgeThreshold`           | 0.05      | #2   | Minimum model edge to show an opportunity        |
 | `PreMatchMinHoursAhead`   | 1.0       | #1   | Only consider matches ≥ this many hours away     |
+
+---
+
+## Opportunity Fields
+
+Each opportunity returned by `GET /Betting/opportunities` includes:
+
+| Field             | Type    | Description                                                        |
+|-------------------|---------|--------------------------------------------------------------------|
+| `edge`            | float   | Model edge over implied probability (e.g. 0.08 = 8%)              |
+| `confidenceLevel` | string  | `"High"` / `"Medium"` / `"Low"` — derived from edge + model prob  |
+| `aiValidation`    | object  | `decision` (GOOD_BET/RISKY/SKIP), `score` (0–10), `flags`, `reason` |
+| `lineMovementStatus` | string | `"Steaming"` / `"Drifting"` / `"Stable"`                       |
+| `suggestedStake`  | decimal | Half-Kelly stake, capped at `MaxStakePercent`                      |
+| `hoursUntilKickoff` | float | Hours until match starts (1.0–6.0)                               |
+
+**Confidence level thresholds:**
+- `High` — edge ≥ 15% AND model probability ≥ 60%
+- `Medium` — edge ≥ 10% OR model probability ≥ 58%
+- `Low` — below both thresholds (still above edge minimum)
 
 ---
 

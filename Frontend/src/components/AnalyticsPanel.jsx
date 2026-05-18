@@ -27,7 +27,7 @@ export default function AnalyticsPanel({ history }) {
     <div className="space-y-6">
       {/* ── Stake summary cards ───────────────────────────── */}
       {settled.length > 0 && (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <div className="bg-gray-700 rounded-xl p-4 text-center">
             <p className="text-gray-400 text-xs mb-1">Avg Stake</p>
             <p className="font-bold text-lg text-white">{fmt(avgStake)}</p>
@@ -35,6 +35,14 @@ export default function AnalyticsPanel({ history }) {
           <div className="bg-gray-700 rounded-xl p-4 text-center">
             <p className="text-gray-400 text-xs mb-1">Total Staked</p>
             <p className="font-bold text-lg text-blue-300">{fmt(totalStaked)}</p>
+          </div>
+          <div className="bg-gray-700 rounded-xl p-4 text-center">
+            <p className="text-gray-400 text-xs mb-1">Avg Edge</p>
+            <p className="font-bold text-lg text-yellow-300">
+              {settled.length > 0
+                ? `${(settled.reduce((s, b) => s + (b.edge ?? 0), 0) / settled.length * 100).toFixed(1)}%`
+                : '—'}
+            </p>
           </div>
         </div>
       )}

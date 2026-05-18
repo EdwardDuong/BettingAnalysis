@@ -158,6 +158,17 @@ public class BettingLoggingService
         lock (_lock) { return _history.Where(b => b.Result != "Pending").Sum(b => b.Stake); }
     }
 
+    public double? GetAverageEdge()
+    {
+        lock (_lock)
+        {
+            var settled = _history.Where(b => b.Result != "Pending").ToList();
+            return settled.Count > 0
+                ? Math.Round(settled.Average(b => (double)b.Edge) * 100, 2)
+                : null;
+        }
+    }
+
     public (int Total, int Wins, int Losses, decimal TotalPnL, double? AvgCLV) GetStats()
     {
         lock (_lock)
