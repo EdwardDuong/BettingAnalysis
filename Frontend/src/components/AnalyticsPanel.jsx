@@ -16,13 +16,29 @@ export default function AnalyticsPanel({ history }) {
       .finally(() => setLoading(false));
   }, []);
 
-  const settled = (history ?? []).filter(b => b.result !== 'Pending');
+  const settled     = (history ?? []).filter(b => b.result !== 'Pending');
   const pnlTimeline = buildPnlTimeline(settled);
-  const roi7d  = rollingROI(settled, 7);
-  const roi30d = rollingROI(settled, 30);
+  const roi7d       = rollingROI(settled, 7);
+  const roi30d      = rollingROI(settled, 30);
+  const totalStaked = settled.reduce((s, b) => s + (b.stake ?? 0), 0);
+  const avgStake    = settled.length > 0 ? totalStaked / settled.length : 0;
 
   return (
     <div className="space-y-6">
+      {/* ── Stake summary cards ───────────────────────────── */}
+      {settled.length > 0 && (
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-gray-700 rounded-xl p-4 text-center">
+            <p className="text-gray-400 text-xs mb-1">Avg Stake</p>
+            <p className="font-bold text-lg text-white">{fmt(avgStake)}</p>
+          </div>
+          <div className="bg-gray-700 rounded-xl p-4 text-center">
+            <p className="text-gray-400 text-xs mb-1">Total Staked</p>
+            <p className="font-bold text-lg text-blue-300">{fmt(totalStaked)}</p>
+          </div>
+        </div>
+      )}
+
       {/* ── Rolling ROI cards ─────────────────────────────── */}
       {(roi7d !== null || roi30d !== null) && (
         <div className="grid grid-cols-2 gap-3">
