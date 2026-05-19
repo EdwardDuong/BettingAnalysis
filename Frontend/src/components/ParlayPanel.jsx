@@ -35,7 +35,7 @@ export default function ParlayPanel() {
 
   if (combos.length === 0) return (
     <div className="bg-gray-800 border border-gray-700 rounded-xl p-8 text-center text-gray-500 text-sm">
-      No parlay combos available — need at least 2 GOOD_BET opportunities from different matches.
+      No parlay combos available — need at least 2 selections with edge ≥ 2% from different matches.
     </div>
   );
 
@@ -43,7 +43,7 @@ export default function ParlayPanel() {
     <div className="space-y-4">
       <div className="text-xs text-gray-500 flex items-center gap-2">
         <span>🎰</span>
-        <span>Parlays built from GOOD_BET selections only · Same-match legs excluded · Half-Kelly sized</span>
+        <span>Legs sourced from all matches with edge ≥ 2% · GOOD_BET legs prioritised · Drifting &amp; SKIP excluded · Half-Kelly sized</span>
       </div>
 
       {combos.map(combo => {
@@ -104,6 +104,15 @@ export default function ParlayPanel() {
                       <p className="text-blue-300 text-xs">
                         {leg.team} ({leg.outcome}) · {new Date(leg.kickoffTime).toLocaleString()}
                       </p>
+                    </div>
+                    <div>
+                      <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${
+                        leg.aiDecision === 'GOOD_BET' ? 'bg-green-800 text-green-200'
+                        : leg.aiDecision === 'RISKY'  ? 'bg-yellow-800 text-yellow-200'
+                        : 'bg-gray-700 text-gray-400'
+                      }`}>
+                        {leg.aiDecision}
+                      </span>
                     </div>
                     <div className="text-right">
                       <p className="text-yellow-300 font-mono font-bold">{leg.odds?.toFixed(2)}</p>
