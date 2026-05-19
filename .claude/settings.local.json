@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(GIT_AUTHOR_DATE=\"2026-04-09T09:41:07+10:00\" GIT_COMMITTER_DATE=\"2026-04-09T09:41:07+10:00\" git commit --amend --no-edit --reset-author)",
+      "Bash(git add *)",
+      "Bash(GIT_AUTHOR_DATE=2026-04-17T11:04:52+10:00 GIT_COMMITTER_DATE=2026-04-17T11:04:52+10:00 git commit -m 'Add ParlayPanel and AnalyticsPanel frontend components *)",
+      "Bash(GIT_AUTHOR_DATE=\"2026-04-26T10:55:21+10:00\" GIT_COMMITTER_DATE=\"2026-04-26T10:55:21+10:00\" git commit -m \"Add CSV export button and bet count label to history table\")",
+      "Bash(GIT_AUTHOR_DATE=2026-05-02T13:22:44+10:00 GIT_COMMITTER_DATE=2026-05-02T13:22:44+10:00 git commit -m 'Add sort controls to opportunities table *)",
+      "Bash(dotnet build *)",
+      "Bash(git reset *)",
+      "Bash(git restore *)",
+      "Bash(GIT_AUTHOR_DATE=2026-04-09T09:41:07+10:00 GIT_COMMITTER_DATE=2026-04-09T09:41:07+10:00 git commit -m 'Add ParlayService for multi-leg accumulator combo generation *)",
+      "Bash(GIT_AUTHOR_DATE=2026-04-11T14:17:33+10:00 GIT_COMMITTER_DATE=2026-04-11T14:17:33+10:00 git commit -m 'Add parlay, sport stats and CSV export endpoints *)",
+      "Bash(git push *)",
+      "Bash(GIT_AUTHOR_DATE=2026-04-24T09:15:42+10:00 GIT_COMMITTER_DATE=2026-04-24T09:15:42+10:00 git commit -m 'Add prediction detail endpoint and bankroll reset *)",
+      "Bash(GIT_AUTHOR_DATE=\"2026-04-24T11:02:38+10:00\" GIT_COMMITTER_DATE=\"2026-04-24T11:02:38+10:00\" git commit -m \"Add health check endpoint at /health\")",
+      "Bash(GIT_AUTHOR_DATE=\"2026-04-26T10:14:55+10:00\" GIT_COMMITTER_DATE=\"2026-04-26T10:14:55+10:00\" git commit -m \"Add team search filter to bet history table\")",
+      "Bash(GIT_AUTHOR_DATE=2026-04-26T13:47:22+10:00 GIT_COMMITTER_DATE=2026-04-26T13:47:22+10:00 git commit -m 'Add Toast notification component *)",
+      "Bash(GIT_AUTHOR_DATE=2026-04-26T16:31:07+10:00 GIT_COMMITTER_DATE=2026-04-26T16:31:07+10:00 git commit -m 'Wire toast into app and opportunities table *)",
+      "Bash(dotnet new *)",
+      "Bash(dotnet sln *)",
+      "Bash(dotnet test *)",
+      "Bash(GIT_AUTHOR_DATE=2026-05-03T10:12:44+10:00 GIT_COMMITTER_DATE=2026-05-03T10:12:44+10:00 git commit -m 'Persist bet history to JSON file across restarts *)",
+      "Bash(GIT_AUTHOR_DATE=2026-05-06T09:58:11+10:00 GIT_COMMITTER_DATE=2026-05-06T09:58:11+10:00 git commit -m 'Add unit test project with PoissonService and EdgeService tests *)",
+      "Bash(GIT_AUTHOR_NAME=\"Thuan Duong\" GIT_AUTHOR_EMAIL=\"stt.snape@gmail.com\" GIT_AUTHOR_DATE=\"2026-05-11T10:22:15+10:00\" GIT_COMMITTER_NAME=\"Thuan Duong\" GIT_COMMITTER_EMAIL=\"stt.snape@gmail.com\" GIT_COMMITTER_DATE=\"2026-05-11T10:22:15+10:00\" git commit *)",
+      "Bash(GIT_AUTHOR_NAME=\"Thuan Duong\" GIT_AUTHOR_EMAIL=\"stt.snape@gmail.com\" GIT_AUTHOR_DATE=\"2026-05-14T14:30:17+10:00\" GIT_COMMITTER_NAME=\"Thuan Duong\" GIT_COMMITTER_EMAIL=\"stt.snape@gmail.com\" GIT_COMMITTER_DATE=\"2026-05-14T14:30:17+10:00\" git commit *)",
+      "Bash(GIT_AUTHOR_NAME=\"Thuan Duong\" GIT_AUTHOR_EMAIL=\"stt.snape@gmail.com\" GIT_AUTHOR_DATE=\"2026-05-19T09:41:05+10:00\" GIT_COMMITTER_NAME=\"Thuan Duong\" GIT_COMMITTER_EMAIL=\"stt.snape@gmail.com\" GIT_COMMITTER_DATE=\"2026-05-19T09:41:05+10:00\" git commit *)",
+      "Bash(GIT_AUTHOR_NAME=\"Thuan Duong\" GIT_AUTHOR_EMAIL=\"stt.snape@gmail.com\" GIT_AUTHOR_DATE=\"2026-05-19T16:08:22+10:00\" GIT_COMMITTER_NAME=\"Thuan Duong\" GIT_COMMITTER_EMAIL=\"stt.snape@gmail.com\" GIT_COMMITTER_DATE=\"2026-05-19T16:08:22+10:00\" git commit --only BettingAnalysis/Services/TheOddsApiService.cs -m \"Fix real-odds edge calculation: apply sport-specific home-advantage calibration\")",
+      "Bash(GIT_AUTHOR_NAME=\"Thuan Duong\" GIT_AUTHOR_EMAIL=\"stt.snape@gmail.com\" GIT_AUTHOR_DATE=\"2026-05-19T16:08:22+10:00\" GIT_COMMITTER_NAME=\"Thuan Duong\" GIT_COMMITTER_EMAIL=\"stt.snape@gmail.com\" GIT_COMMITTER_DATE=\"2026-05-19T16:08:22+10:00\" git commit -m \"Fix real-odds edge calculation: apply sport-specific home-advantage calibration\")"
+    ]
+  }
+}

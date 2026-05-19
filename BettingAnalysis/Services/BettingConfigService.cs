@@ -23,6 +23,7 @@ public class BettingConfigService
             DailyLossLimitPercent  = cfg.GetValue<double>("BettingSettings:DailyLossLimitPercent", 0.10),
             StopLossPercent        = cfg.GetValue<double>("BettingSettings:StopLossPercent", 0.20),
             MaxExposurePercent     = cfg.GetValue<double>("BettingSettings:MaxExposurePercent", 0.10),
+            ParlayMinEdge          = cfg.GetValue<double>("BettingSettings:ParlayMinEdge", 0.02),
             PreMatchMinHours       = cfg.GetValue<double>("BettingSettings:PreMatchMinHoursAhead", 1.0),
             PreMatchMaxHours       = cfg.GetValue<double>("BettingSettings:PreMatchMaxHoursAhead", 336.0),
             MaxConsecutiveLosses   = cfg.GetValue<int>("BettingSettings:MaxConsecutiveLosses", 3),

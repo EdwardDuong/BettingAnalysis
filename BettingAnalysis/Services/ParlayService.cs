@@ -3,13 +3,19 @@ using BettingAnalysis.Models;
 namespace BettingAnalysis.Services;
 
 /// <summary>
-/// Builds recommended multi-leg parlay combos from GOOD_BET opportunities.
+/// Builds recommended multi-leg parlay combos from the wider parlay candidate pool.
 ///
-/// Only GOOD_BET selections are eligible legs. Same-match legs are excluded
-/// (correlated — violates the independence assumption behind combined probability).
+/// Eligibility (more permissive than single-bet gate):
+///   ✅ Any selection with edge ≥ ParlayMinEdge (default 2%)
+///   ✅ GOOD_BET and RISKY are both allowed as legs
+///   ❌ SKIP (AI vetoed) is excluded
+///   ❌ Drifting lines are excluded (market disagrees, risk compounds)
+///   ❌ HIGH_EDGE flag excluded (suspicious false-edge risk)
+///
+/// GOOD_BET legs are prioritised over RISKY when building each combo.
+/// Same-match legs are excluded (correlated outcomes).
 ///
 /// Sizing: half-Kelly on the combined edge, capped at MaxStakePercent.
-/// Combined probability = product of leg probabilities (assumes independence).
 /// </summary>
 public class ParlayService
 {
@@ -18,7 +24,7 @@ public class ParlayService
 
     private const int MinLegs = 2;
     private const int MaxLegs = 4;
-    private const int MaxEligible = 8;  // cap to avoid combinatorial explosion
+    private const int MaxEligible = 20;  // wider pool now includes lower-edge legs
 
     public ParlayService(BankrollService bankroll, BettingConfigService cfg)
     {
@@ -33,13 +39,15 @@ public class ParlayService
     /// </summary>
     public List<ParlayCombo> BuildCombos(List<BetOpportunity> opportunities)
     {
-        // Exclude drifting lines and suspicious high-edge selections — parlay
-        // compounds risk across legs, so conservative filtering is essential.
+        // Parlay compounds risk, so drifting lines and suspicious edges are still
+        // excluded. SKIP is excluded (AI vetoed). GOOD_BET and RISKY are both
+        // allowed, with GOOD_BET legs sorted first so they anchor each combo.
         var eligible = opportunities
-            .Where(o => o.AiValidation?.Decision == "GOOD_BET"
+            .Where(o => o.AiValidation?.Decision != "SKIP"
                 && o.LineMovementStatus != "Drifting"
                 && !(o.AiValidation?.Flags?.Contains(ValidationFlags.HighEdge) ?? false))
-            .OrderByDescending(o => o.AiValidation?.Score ?? 0)
+            .OrderByDescending(o => o.AiValidation?.Decision == "GOOD_BET" ? 1 : 0)
+            .ThenByDescending(o => o.AiValidation?.Score ?? 0)
             .ThenByDescending(o => o.Edge)
             .Take(MaxEligible)
             .ToList();
