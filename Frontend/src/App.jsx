@@ -85,7 +85,7 @@ export default function App() {
           <div>
             <h1 className="text-xl font-bold text-white">📊 Betting Analysis</h1>
             <p className="text-gray-400 text-xs mt-0.5">
-              Pre-match · 1–6h window · Half-Kelly · AI Validated
+              Pre-match · up to 2 weeks ahead · Half-Kelly · AI Validated
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -233,7 +233,7 @@ export default function App() {
       <Toast toasts={toasts} onDismiss={dismissToast} />
 
       <footer className="text-center text-gray-600 text-xs py-8">
-        Pre-match only · 1–6h window · Half-Kelly sizing · AI validated · 11 risk rules active
+        Pre-match only · up to 2 weeks ahead · Half-Kelly sizing · AI validated · 11 risk rules active
       </footer>
     </div>
   );

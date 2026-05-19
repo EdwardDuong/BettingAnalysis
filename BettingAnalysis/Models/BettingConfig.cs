@@ -35,8 +35,8 @@ public class BettingConfig
     /// <summary>Rule: Do not bet less than this many hours before kickoff (default 1h).</summary>
     public double PreMatchMinHours { get; set; } = 1.0;
 
-    /// <summary>Rule: Do not bet more than this many hours before kickoff (default 6h).</summary>
-    public double PreMatchMaxHours { get; set; } = 6.0;
+    /// <summary>Rule: Do not bet more than this many hours before kickoff (default 336h = 2 weeks).</summary>
+    public double PreMatchMaxHours { get; set; } = 336.0;
 
     // ── Tilt protection ───────────────────────────────────────────────────────
     /// <summary>Rule: Halt betting after this many consecutive losses (default 3).</summary>

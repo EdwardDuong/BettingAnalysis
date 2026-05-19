@@ -82,7 +82,7 @@ export default function OpportunitiesTable({ opportunities, selectedSport, onBet
   if (filtered.length === 0) {
     return (
       <div className="text-center text-gray-500 py-16 text-sm">
-        No opportunities within the 1–6h betting window for {selectedSport === 'All' ? 'any sport' : selectedSport}.
+        No pre-match opportunities found for {selectedSport === 'All' ? 'any sport' : selectedSport}.
       </div>
     );
   }

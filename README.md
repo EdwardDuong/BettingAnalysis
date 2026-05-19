@@ -147,6 +147,7 @@ POST /Betting/result/{guid}
 | `StopLossPercent`         | 0.20      | #5   | Halt system if cumulative loss exceeds this      |
 | `EdgeThreshold`           | 0.05      | #2   | Minimum model edge to show an opportunity        |
 | `PreMatchMinHoursAhead`   | 1.0       | #1   | Only consider matches ≥ this many hours away     |
+| `PreMatchMaxHoursAhead`   | 336.0     | #1   | Do not bet more than this many hours ahead (336h = 2 weeks) |
 
 ---
 
@@ -174,7 +175,7 @@ Each opportunity returned by `GET /Betting/opportunities` includes:
 
 | #  | Rule                    | Enforcement                                                  |
 |----|-------------------------|--------------------------------------------------------------|
-| 1  | Pre-match only          | OddsService filters `MatchStartTime > now + 1h`              |
+| 1  | Pre-match only          | OddsService filters `MatchStartTime` between now+1h and now+2wk |
 | 2  | Edge ≥ 5%               | BettingController skips any outcome below EdgeThreshold       |
 | 3  | Max stake 2–5%          | BetSizingService caps Kelly at MaxStakePercent               |
 | 4  | Daily loss ≤ 10%        | BankrollService rejects bets once DailyLossUsed hits limit   |
@@ -229,7 +230,7 @@ Then calibrate `HomeLambda` / `AwayLambda` from a separate stats API
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
 | Frontend shows "API error" | Backend not running | Run `dotnet run` in `BettingAnalysis/` |
-| All opportunities list empty | Stop-loss triggered, or no matches in 1–6h window | Check `/Betting/bankroll` for `isStopLossTriggered`; use mock data outside AU hours |
+| All opportunities list empty | Stop-loss triggered, or no matches in 1h–2wk window | Check `/Betting/bankroll` for `isStopLossTriggered`; use mock data outside AU hours |
 | Odds never refresh | Cache still valid (30 min TTL) | Click "⟳ New Odds" or call `POST /Betting/refresh` |
 | Bet rejected with exposure error | Too many open (Pending) bets | Settle pending bets via History tab before placing new ones |
 | Parlay tab shows nothing | Fewer than 2 GOOD_BET opportunities | Lower `edgeThreshold` in Settings or wait for better odds |
