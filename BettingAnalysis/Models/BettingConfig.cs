@@ -31,6 +31,12 @@ public class BettingConfig
     /// <summary>Rule: Total open bet exposure must not exceed this fraction of bankroll (default 10%).</summary>
     public double MaxExposurePercent { get; set; } = 0.10;
 
+    /// <summary>
+    /// Minimum edge for a leg to be eligible for parlay inclusion (default 2%).
+    /// Lower than EdgeThreshold so short-priced legs can anchor multi-leg combos.
+    /// </summary>
+    public double ParlayMinEdge { get; set; } = 0.02;
+
     // ── Timing window ─────────────────────────────────────────────────────────
     /// <summary>Rule: Do not bet less than this many hours before kickoff (default 1h).</summary>
     public double PreMatchMinHours { get; set; } = 1.0;

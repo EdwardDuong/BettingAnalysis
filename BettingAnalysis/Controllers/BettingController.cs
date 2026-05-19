@@ -446,7 +446,7 @@ public class BettingController : ControllerBase
             foreach (var (outcome, team, odds, prevOdds, prob) in candidates)
             {
                 var edgeVal = _edge.CalculateEdge(prob, odds);
-                if (edgeVal < config.EdgeThreshold) continue;
+                if (edgeVal < config.ParlayMinEdge) continue;  // wider pool than single-bet threshold
 
                 var movement   = _lineMovement.GetMovement(odds, prevOdds);
                 var hoursUntil = (match.MatchStartTime - now).TotalHours;
@@ -468,6 +468,7 @@ public class BettingController : ControllerBase
                     HoursUntilKickoff = Math.Round(hoursUntil, 2),
                     PreviousOdds      = prevOdds,
                     LineMovementStatus = movement.ToString(),
+                    ConfidenceLevel   = ComputeConfidence(prob, edgeVal),
                 });
             }
         }
