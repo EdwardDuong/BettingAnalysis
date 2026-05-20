@@ -7,7 +7,7 @@ import ParlayPanel        from './components/ParlayPanel.jsx';
 import AnalyticsPanel     from './components/AnalyticsPanel.jsx';
 import RejectedBetsPanel  from './components/RejectedBetsPanel.jsx';
 import Toast              from './components/Toast.jsx';
-import { getOpportunities, getHistory, getBankroll, getStats, refreshOdds } from './services/api.js';
+import { getOpportunities, getHistory, getBankroll, getStats, getParlays, refreshOdds } from './services/api.js';
 
 const SPORTS      = ['All', 'EPL', 'AFL', 'NRL', 'NBA', 'Esports'];
 const MAIN_TABS   = ['Opportunities', 'Parlays', 'History', 'Analytics', 'Rejected', 'Settings'];
@@ -25,6 +25,7 @@ export default function App() {
   const [lastRefresh,   setLastRefresh]   = useState(null);
   const [refreshing,    setRefreshing]    = useState(false);
   const [toasts,        setToasts]        = useState([]);
+  const [parlayCount,   setParlayCount]   = useState(0);
 
   const addToast = (message, type = 'info') =>
     setToasts(t => [...t, { id: Date.now(), message, type }]);
@@ -32,13 +33,14 @@ export default function App() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [opps, hist, br, st] = await Promise.all([
-        getOpportunities(), getHistory(), getBankroll(), getStats()
+      const [opps, hist, br, st, parls] = await Promise.all([
+        getOpportunities(), getHistory(), getBankroll(), getStats(), getParlays()
       ]);
       setOpportunities(opps);
       setHistory(hist);
       setBankroll(br);
       setStats(st);
+      setParlayCount(parls?.length ?? 0);
       setLastRefresh(new Date());
       setError(null);
     } catch (err) {
@@ -153,6 +155,9 @@ export default function App() {
               {tab}
               {tab === 'History' && pendingCount > 0 && (
                 <span className="ml-2 bg-orange-500 text-white text-xs rounded-full px-1.5 py-0.5">{pendingCount}</span>
+              )}
+              {tab === 'Parlays' && parlayCount > 0 && (
+                <span className="ml-2 bg-purple-600 text-white text-xs rounded-full px-1.5 py-0.5">{parlayCount}</span>
               )}
             </button>
           ))}
