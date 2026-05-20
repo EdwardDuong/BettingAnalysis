@@ -4,10 +4,17 @@ import { getParlays } from '../services/api.js';
 const SPORT_EMOJI = { EPL: '⚽', AFL: '🏈', NRL: '🏉', NBA: '🏀', Esports: '🎮' };
 
 const RISK_STYLE = {
-  Safe:       { bg: 'bg-green-900 border-green-700',  text: 'text-green-300',  badge: 'bg-green-700'  },
+  Safe:       { bg: 'bg-green-900 border-green-700',   text: 'text-green-300',  badge: 'bg-green-700'  },
   Medium:     { bg: 'bg-yellow-900 border-yellow-700', text: 'text-yellow-300', badge: 'bg-yellow-700' },
   Aggressive: { bg: 'bg-orange-900 border-orange-700', text: 'text-orange-300', badge: 'bg-orange-700' },
   Extreme:    { bg: 'bg-red-900 border-red-700',       text: 'text-red-300',    badge: 'bg-red-700'    },
+};
+
+const STRATEGY_NOTE = {
+  Safe:       'Best AI-scored picks · highest confidence',
+  Medium:     'Highest-edge picks · value-focused',
+  Aggressive: 'Highest-probability picks · most likely to win',
+  Extreme:    'Broadest coverage · low-variance legs',
 };
 
 export default function ParlayPanel() {
@@ -43,7 +50,7 @@ export default function ParlayPanel() {
     <div className="space-y-4">
       <div className="text-xs text-gray-500 flex items-center gap-2">
         <span>🎰</span>
-        <span>Legs sourced from all matches with edge ≥ 2% · GOOD_BET legs prioritised · Drifting &amp; SKIP excluded · Half-Kelly sized</span>
+        <span>Edge ≥ 2% · combined odds ≥ 10 · GOOD_BET legs prioritised · Drifting &amp; SKIP excluded · Half-Kelly sized</span>
       </div>
 
       {combos.map(combo => {
@@ -62,8 +69,11 @@ export default function ParlayPanel() {
                   {combo.legs}-LEG
                 </span>
                 <span className={`text-sm font-semibold ${style.text}`}>{combo.riskLabel}</span>
-                <span className="text-gray-400 text-xs">
-                  Avg AI: {combo.avgAiScore}/10 · Avg Edge: {(combo.avgEdge * 100).toFixed(1)}%
+                <span className="text-gray-400 text-xs hidden sm:inline">
+                  {STRATEGY_NOTE[combo.riskLabel] ?? ''}
+                </span>
+                <span className="text-gray-500 text-xs">
+                  AI: {combo.avgAiScore}/10 · Edge: {(combo.avgEdge * 100).toFixed(1)}%
                 </span>
               </div>
 
