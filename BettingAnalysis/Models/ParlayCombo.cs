@@ -16,6 +16,8 @@ public class ParlayCombo
     public double  AvgEdge       { get; set; }   // Average leg edge
     public decimal SuggestedStake { get; set; }  // Half-Kelly on the combo
     public double  AvgAiScore    { get; set; }
+    /// <summary>Describes the leg-selection strategy for this combo.</summary>
+    public string  Strategy      { get; set; } = string.Empty;
     public List<ParlayLeg> Selections { get; set; } = new();
 }
 
