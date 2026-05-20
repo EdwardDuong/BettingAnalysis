@@ -48,17 +48,33 @@ public class AIValidatorService
     /// </summary>
     public List<ValidatedBet> Validate(List<BetOpportunity> opportunities)
     {
-        // Pre-compute match groups for correlation detection (Rule 5)
         var perMatch = opportunities
             .GroupBy(o => o.MatchId)
             .ToDictionary(g => g.Key, g => g.Count());
 
         return opportunities
-            .Select(opp => ValidateOne(opp, perMatch))
+            .Select(opp => ValidateOne(opp, perMatch, parlayMode: false))
             .ToList();
     }
 
-    private ValidatedBet ValidateOne(BetOpportunity opp, Dictionary<string, int> perMatch)
+    /// <summary>
+    /// Parlay-aware validation. Relaxes the edge-based SKIP threshold — a leg with
+    /// 2%+ edge still contributes positive EV when multiplied across a combo.
+    /// SKIP is reserved for bets with 3+ risk flags or score ≤ 2.
+    /// Correlation detection is also suppressed (the ParlayService enforces
+    /// one leg per match structurally).
+    /// </summary>
+    public List<ValidatedBet> ValidateForParlay(List<BetOpportunity> opportunities)
+    {
+        // No perMatch correlation detection for parlays — enforced structurally
+        var emptyPerMatch = new Dictionary<string, int>();
+
+        return opportunities
+            .Select(opp => ValidateOne(opp, emptyPerMatch, parlayMode: true))
+            .ToList();
+    }
+
+    private ValidatedBet ValidateOne(BetOpportunity opp, Dictionary<string, int> perMatch, bool parlayMode)
     {
         var flags = new List<string>();
         int score = 5;
@@ -111,7 +127,8 @@ public class AIValidatorService
         }
 
         // ── Rule 5: Correlation ────────────────────────────────────────────────
-        if (perMatch.TryGetValue(opp.MatchId, out int count) && count > 1)
+        // Suppressed in parlay mode — ParlayService enforces one leg per match structurally
+        if (!parlayMode && perMatch.TryGetValue(opp.MatchId, out int count) && count > 1)
         {
             // Multiple outcomes on the same match are partially correlated
             flags.Add(ValidationFlags.CorrelatedBet);
@@ -140,7 +157,10 @@ public class AIValidatorService
         var totalRiskFlags = majorFlags.Count + minorFlags.Count;
 
         string decision;
-        if (opp.Edge < EdgeSkipBelow || totalRiskFlags >= 3 || score <= 2)
+        // In parlay mode, low edge alone is never a SKIP reason — combined EV can still be positive.
+        // Only SKIP for truly bad bets: too many risk flags or very low score.
+        bool skipByEdge = !parlayMode && opp.Edge < EdgeSkipBelow;
+        if (skipByEdge || totalRiskFlags >= 3 || score <= 2)
             decision = "SKIP";
         else if (majorFlags.Count >= 1 || minorFlags.Count >= 2 || score <= 5)
             decision = "RISKY";

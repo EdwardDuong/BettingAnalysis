@@ -57,14 +57,13 @@ public class BettingController : ControllerBase
     /// Returns all pre-match value bet opportunities, enriched with AI validation.
     ///
     /// Pipeline:
-    ///   1.  OddsService    → matches within 1–6h betting window (Rules #1, #4)
+    ///   1.  OddsService    → matches within betting window (Rules #1, #4)
     ///   2.  PoissonService → outcome probabilities
     ///   3.  EdgeService    → model edge vs implied probability (Rule #2)
-    ///   4.  Filter         → edge ≥ EdgeThreshold (default 5%)
-    ///   5.  LineMovement   → Steaming / Drifting / Stable
-    ///   6.  BetSizingService → half-Kelly stake (Rule #3)
-    ///   7.  AIValidatorService → Score, Decision, Flags for all opportunities
-    ///   8.  Sort by AI score descending (GOOD_BET first, then RISKY)
+    ///   4.  LineMovement   → Steaming / Drifting / Stable
+    ///   5.  BetSizingService → half-Kelly stake (Rule #3)
+    ///   6.  AIValidatorService → Score, Decision, Flags for all opportunities
+    ///   7.  Sort by AI score descending (GOOD_BET first, then RISKY)
     ///
     /// Returns empty list if stop-loss triggered (Rule #5).
     /// </summary>
@@ -95,8 +94,6 @@ public class BettingController : ControllerBase
             foreach (var (outcome, team, odds, prevOdds, prob) in candidates)
             {
                 var edgeVal = _edge.CalculateEdge(prob, odds);
-                if (edgeVal < config.EdgeThreshold) continue;
-
                 var movement      = _lineMovement.GetMovement(odds, prevOdds);
                 var hoursUntil    = (match.MatchStartTime - now).TotalHours;
                 var stake         = _sizing.CalculateStake(prob, odds, bankroll.AvailableBankroll);
@@ -473,7 +470,7 @@ public class BettingController : ControllerBase
             }
         }
 
-        var validated = _aiValidator.Validate(opportunities);
+        var validated = _aiValidator.ValidateForParlay(opportunities);
         foreach (var opp in opportunities)
             opp.AiValidation = validated.FirstOrDefault(v => v.MatchId == opp.MatchId && v.Outcome == opp.Outcome);
 
