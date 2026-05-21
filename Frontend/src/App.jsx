@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTheme } from './hooks/useTheme.js';
 import BankrollPanel      from './components/BankrollPanel.jsx';
 import OpportunitiesTable from './components/OpportunitiesTable.jsx';
 import BetHistoryTable    from './components/BetHistoryTable.jsx';
@@ -26,6 +27,7 @@ export default function App() {
   const [refreshing,    setRefreshing]    = useState(false);
   const [toasts,        setToasts]        = useState([]);
   const [parlayCount,   setParlayCount]   = useState(0);
+  const { theme, toggle: toggleTheme } = useTheme();
 
   const addToast = (message, type = 'info') =>
     setToasts(t => [...t, { id: Date.now(), message, type }]);
@@ -124,6 +126,10 @@ export default function App() {
                 {lastRefresh.toLocaleTimeString()}
               </span>
             )}
+            <button onClick={toggleTheme} title="Toggle dark/light mode"
+              className="px-3 py-1.5 text-xs rounded-lg bg-gray-700 hover:bg-gray-600 transition-colors">
+              {theme === 'dark' ? '☀️' : '🌙'}
+            </button>
             <button onClick={handleFetchNewOdds} disabled={refreshing}
               className="px-3 py-1.5 text-xs rounded-lg bg-blue-700 hover:bg-blue-600 disabled:opacity-50 transition-colors">
               {refreshing ? '…' : '⟳ New Odds'}
