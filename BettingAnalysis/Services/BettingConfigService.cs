@@ -1,3 +1,4 @@
+using BettingAnalysis.Interfaces;
 using BettingAnalysis.Models;
 
 namespace BettingAnalysis.Services;
@@ -7,7 +8,7 @@ namespace BettingAnalysis.Services;
 /// Seeded from appsettings.json on startup.
 /// Updated at runtime via PUT /Betting/settings — changes apply immediately.
 /// </summary>
-public class BettingConfigService
+public class BettingConfigService : IBettingConfigService
 {
     private BettingConfig _config;
     private readonly object _lock = new();

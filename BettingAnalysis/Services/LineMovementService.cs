@@ -1,3 +1,4 @@
+using BettingAnalysis.Interfaces;
 using BettingAnalysis.Models;
 
 namespace BettingAnalysis.Services;
@@ -17,7 +18,7 @@ public enum LineMovement { Stable, Steaming, Drifting }
 /// A move is only "significant" when the implied probability shifts by ≥ 3%.
 /// Smaller moves are noise and classed as Stable.
 /// </summary>
-public class LineMovementService
+public class LineMovementService : ILineMovementService
 {
     /// <summary>Minimum implied probability shift to classify as a significant move.</summary>
     private const double SignificantMovePct = 0.03;

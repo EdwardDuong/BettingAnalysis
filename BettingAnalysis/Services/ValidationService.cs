@@ -1,3 +1,4 @@
+using BettingAnalysis.Interfaces;
 using BettingAnalysis.Models;
 
 namespace BettingAnalysis.Services;
@@ -19,18 +20,18 @@ namespace BettingAnalysis.Services;
 ///   10. Tilt protection    — halt after N consecutive losses (default: 3)
 ///   11. Team blacklist     — emotional bias protection
 /// </summary>
-public class ValidationService
+public class ValidationService : IValidationService
 {
-    private readonly BettingConfigService    _cfg;
-    private readonly BankrollService         _bankroll;
-    private readonly BettingLoggingService   _log;
-    private readonly LineMovementService     _lineMovement;
+    private readonly IBettingConfigService    _cfg;
+    private readonly IBankrollService         _bankroll;
+    private readonly IBettingLoggingService   _log;
+    private readonly ILineMovementService     _lineMovement;
 
     public ValidationService(
-        BettingConfigService  cfg,
-        BankrollService       bankroll,
-        BettingLoggingService log,
-        LineMovementService   lineMovement)
+        IBettingConfigService  cfg,
+        IBankrollService       bankroll,
+        IBettingLoggingService log,
+        ILineMovementService   lineMovement)
     {
         _cfg          = cfg;
         _bankroll     = bankroll;

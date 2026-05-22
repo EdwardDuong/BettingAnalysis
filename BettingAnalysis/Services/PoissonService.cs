@@ -1,3 +1,4 @@
+using BettingAnalysis.Interfaces;
 using BettingAnalysis.Models;
 
 namespace BettingAnalysis.Services;
@@ -18,7 +19,7 @@ namespace BettingAnalysis.Services;
 /// Lambdas are calibrated against historical data in production.
 /// In the mock, they are hand-set per team pair.
 /// </summary>
-public class PoissonService
+public class PoissonService : IPoissonService
 {
     /// <summary>
     /// Maximum goals/scores to enumerate per team.

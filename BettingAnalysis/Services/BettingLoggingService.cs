@@ -1,3 +1,4 @@
+using BettingAnalysis.Interfaces;
 using BettingAnalysis.Models;
 using System.Text.Json;
 
@@ -9,7 +10,7 @@ namespace BettingAnalysis.Services;
 /// Path defaults to bet-history.json in the working directory; override via
 /// BettingSettings:HistoryFilePath in appsettings.json.
 /// </summary>
-public class BettingLoggingService
+public class BettingLoggingService : IBettingLoggingService
 {
     private readonly List<BetHistory>    _history  = new();
     private readonly List<RejectedBet>   _rejected = new();

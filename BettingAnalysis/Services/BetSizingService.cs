@@ -1,13 +1,15 @@
+using BettingAnalysis.Interfaces;
+
 namespace BettingAnalysis.Services;
 
 /// <summary>
 /// Half-Kelly bet sizing — uses live BettingConfigService so changes in SettingsPanel apply instantly.
 /// </summary>
-public class BetSizingService
+public class BetSizingService : IBetSizingService
 {
-    private readonly BettingConfigService _cfg;
+    private readonly IBettingConfigService _cfg;
 
-    public BetSizingService(BettingConfigService cfg) => _cfg = cfg;
+    public BetSizingService(IBettingConfigService cfg) => _cfg = cfg;
 
     public decimal CalculateStake(double probability, decimal odds, decimal bankroll)
     {

@@ -1,3 +1,4 @@
+using BettingAnalysis.Interfaces;
 using BettingAnalysis.Models;
 
 namespace BettingAnalysis.Services;
@@ -7,7 +8,7 @@ namespace BettingAnalysis.Services;
 /// Exposure and consecutive-losses stats live in BettingLoggingService
 /// and are merged into the Bankroll snapshot by the controller.
 /// </summary>
-public class BankrollService
+public class BankrollService : IBankrollService
 {
     private readonly decimal _maxStakePct;
     private readonly decimal _dailyLossPct;

@@ -1,3 +1,5 @@
+using BettingAnalysis.Interfaces;
+
 namespace BettingAnalysis.Services;
 
 /// <summary>
@@ -14,7 +16,7 @@ namespace BettingAnalysis.Services;
 /// Rule #2: Only bet when Edge >= 5% (0.05)
 /// Rule #8: Flag Edge >= 20% for manual verification (may indicate model error)
 /// </summary>
-public class EdgeService
+public class EdgeService : IEdgeService
 {
     /// <summary>
     /// Calculate the edge for a single outcome.

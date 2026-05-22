@@ -1,3 +1,4 @@
+using BettingAnalysis.Interfaces;
 using BettingAnalysis.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -13,20 +14,20 @@ builder.Services.AddSwaggerGen(c =>
 // ── HTTP client for The Odds API ──────────────────────────────────────────────
 builder.Services.AddHttpClient<TheOddsApiService>(c => c.Timeout = TimeSpan.FromSeconds(15));
 
-// ── Singletons (shared state + config) ───────────────────────────────────────
-builder.Services.AddSingleton<BettingConfigService>();   // Live-editable config
-builder.Services.AddSingleton<BankrollService>();
-builder.Services.AddSingleton<BettingLoggingService>();
+// ── Core Services (with interfaces for testability & flexibility) ─────────────
+builder.Services.AddSingleton<IBettingConfigService, BettingConfigService>();
+builder.Services.AddSingleton<IBankrollService, BankrollService>();
+builder.Services.AddSingleton<IBettingLoggingService, BettingLoggingService>();
+builder.Services.AddSingleton<IValidationService, ValidationService>();
+builder.Services.AddSingleton<ILineMovementService, LineMovementService>();
+builder.Services.AddSingleton<IPoissonService, PoissonService>();
+builder.Services.AddSingleton<IEdgeService, EdgeService>();
+builder.Services.AddSingleton<IBetSizingService, BetSizingService>();
 
-// ── Stateless services ────────────────────────────────────────────────────────
-builder.Services.AddSingleton<PoissonService>();
-builder.Services.AddSingleton<EdgeService>();
-builder.Services.AddSingleton<LineMovementService>();
+// ── Services without interfaces yet (TODO: create interfaces) ────────────────
 builder.Services.AddSingleton<CLVService>();
-builder.Services.AddSingleton<BetSizingService>();
 builder.Services.AddSingleton<AIValidatorService>();
 builder.Services.AddSingleton<OddsService>();
-builder.Services.AddSingleton<ValidationService>();
 builder.Services.AddSingleton<ParlayService>();
 builder.Services.AddHostedService<OddsRefreshService>();
 
