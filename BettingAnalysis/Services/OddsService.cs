@@ -1,3 +1,4 @@
+using BettingAnalysis.Interfaces;
 using BettingAnalysis.Models;
 
 namespace BettingAnalysis.Services;
@@ -7,18 +8,18 @@ namespace BettingAnalysis.Services;
 /// Now uses BettingConfigService for the 1–6 hour betting window (live-updateable).
 /// Previous odds are included to enable LineMovementService analysis.
 /// </summary>
-public class OddsService
+public class OddsService : IOddsService
 {
-    private readonly BettingConfigService _cfg;
-    private readonly TheOddsApiService    _realApi;
-    private readonly ILogger<OddsService> _logger;
+    private readonly IBettingConfigService _cfg;
+    private readonly TheOddsApiService     _realApi;
+    private readonly ILogger<OddsService>  _logger;
 
     private List<MatchOdds>? _cache;
     private DateTime         _cacheExpiry = DateTime.MinValue;
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(30);
     private readonly SemaphoreSlim _cacheLock = new(1, 1);
 
-    public OddsService(BettingConfigService cfg, TheOddsApiService realApi, ILogger<OddsService> logger)
+    public OddsService(IBettingConfigService cfg, TheOddsApiService realApi, ILogger<OddsService> logger)
     {
         _cfg     = cfg;
         _realApi = realApi;
@@ -62,20 +63,10 @@ public class OddsService
                     var real = _realApi.GetRealOddsAsync().GetAwaiter().GetResult();
                     if (real?.Count > 0)
                     {
-                        // Fill in mock data for any sport the real API didn't return
-                        // (e.g. Esports has no API source; AFL/NRL/NBA may be off-season)
-                        var coveredSports = real.Select(m => m.SportType).ToHashSet();
-                        var mockFillIn    = GetMockOdds()
-                            .Where(m => !coveredSports.Contains(m.SportType))
-                            .ToList();
-                        real.AddRange(mockFillIn);
-
                         _cache = real; _cacheExpiry = DateTime.UtcNow.Add(CacheDuration);
                         _logger.LogInformation(
-                            "Loaded {Count} real matches + {Fill} mock fill-in ({Sports}). Cache until {T:HH:mm}",
-                            real.Count - mockFillIn.Count, mockFillIn.Count,
-                            string.Join(", ", mockFillIn.Select(m => m.SportType).Distinct()),
-                            _cacheExpiry);
+                            "Loaded {Count} real matches from API. Cache until {T:HH:mm}",
+                            real.Count, _cacheExpiry);
                         return _cache;
                     }
                 }
