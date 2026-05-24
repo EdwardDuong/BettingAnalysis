@@ -5,32 +5,31 @@ namespace BettingAnalysis.Services;
 /// <summary>
 /// Edge Calculation Service.
 ///
-/// Edge = ModelProbability - ImpliedProbability
+/// We use Expected Value (EV) not raw probability gap.
 ///
-/// ImpliedProbability = 1 / DecimalOdds
-///   (this is the "fair" probability embedded in the odds — includes bookmaker margin)
+/// EV = (ModelProbability × DecimalOdds) − 1
 ///
-/// Positive edge means our Poisson model estimates the true probability
-/// is HIGHER than what the bookmaker is paying for. That is a value bet.
+/// Why EV and not (model_prob − implied_prob)?
+///   A 3% probability gap at 1.40 odds → EV = +4.2%
+///   A 3% probability gap at 4.00 odds → EV = +12.0%
+/// The same probability edge produces wildly different dollar returns at
+/// different odds. Filtering on probability gap unfairly rejects high-odds
+/// value bets. EV captures what actually matters: profit per dollar staked.
 ///
-/// Rule #2: Only bet when Edge >= 5% (0.05)
-/// Rule #8: Flag Edge >= 20% for manual verification (may indicate model error)
+/// Threshold (EdgeThreshold in config): 4% EV is a reasonable minimum.
+/// Suspicious flag (HighEdgeThreshold): >20% EV suggests stale/wrong odds.
 /// </summary>
 public class EdgeService : IEdgeService
 {
     /// <summary>
-    /// Calculate the edge for a single outcome.
+    /// Calculate the expected value (EV) for a single outcome.
     /// </summary>
     /// <param name="modelProbability">Probability from Poisson model (0–1)</param>
-    /// <param name="bookmakerOdds">Decimal odds (e.g. 2.10 means $1.10 profit per $1 staked)</param>
-    /// <returns>Edge as decimal fraction. 0.08 = 8% edge.</returns>
+    /// <param name="bookmakerOdds">Decimal odds (e.g. 2.10 = $1.10 profit per $1 staked)</param>
+    /// <returns>EV as decimal fraction. 0.08 = +8% return per dollar staked.</returns>
     public double CalculateEdge(double modelProbability, decimal bookmakerOdds)
     {
-        // Implied probability embedded in the odds (includes bookmaker's overround)
-        double impliedProbability = 1.0 / (double)bookmakerOdds;
-
-        // Our advantage: how much better our model is versus what the market prices
-        return modelProbability - impliedProbability;
+        return modelProbability * (double)bookmakerOdds - 1.0;
     }
 
     /// <summary>
