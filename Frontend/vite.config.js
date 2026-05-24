@@ -6,11 +6,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // Proxy all /Betting/* calls to the .NET backend
-      '/Betting': {
-        target: 'http://localhost:5100',
-        changeOrigin: true,
-      }
+      '/Betting': { target: 'http://localhost:5100', changeOrigin: true },
+      '/api':     { target: 'http://localhost:5100', changeOrigin: true },
+      '/hubs':    { target: 'http://localhost:5100', changeOrigin: true, ws: true },
     }
   }
 });
