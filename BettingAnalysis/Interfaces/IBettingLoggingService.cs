@@ -24,4 +24,10 @@ public interface IBettingLoggingService
     int CountBetsOnMatch(string matchId);
     int GetConsecutiveLosses();
     int GetCurrentStreak();
+
+    // ── Aggregate Stats (used by BettingController) ──────────────────────────
+    (int Total, int Wins, int Losses, decimal TotalPnL, double? AvgCLV) GetStats();
+    decimal GetTotalStaked();
+    double? GetAverageEdge();
+    List<object> GetStatsBySport();
 }

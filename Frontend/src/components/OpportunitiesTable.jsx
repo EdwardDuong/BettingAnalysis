@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { placeBet } from '../services/api.js';
 
-const SPORT_EMOJI = { EPL: '⚽', AFL: '🏈', NRL: '🏉', NBA: '🏀', Esports: '🎮' };
+const SPORT_EMOJI = { EPL: '⚽', LaLiga: '⚽', Bundesliga: '⚽', SerieA: '⚽', Ligue1: '⚽', AFL: '🏈', NRL: '🏉', NBA: '🏀', Esports: '🎮' };
 
 const DECISION_STYLE = {
   GOOD_BET: { bg: 'bg-green-800',  text: 'text-green-100',  label: '✅ GOOD BET' },
@@ -29,7 +29,7 @@ const SORT_OPTIONS = [
 ];
 
 export default function OpportunitiesTable({ opportunities, selectedSport, onBetPlaced, onToast }) {
-  const [placing,   setPlacing]   = useState(null);
+  const [recording, setRecording] = useState(null);
   const [feedback,  setFeedback]  = useState({});
   const [sortBy,    setSortBy]    = useState('ai');
   const [search,    setSearch]    = useState('');
@@ -58,24 +58,24 @@ export default function OpportunitiesTable({ opportunities, selectedSport, onBet
     }
   });
 
-  const handlePlace = async (opp) => {
+  const handleRecord = async (opp) => {
     const key = `${opp.matchId}-${opp.outcome}`;
     if (opp.aiValidation?.decision === 'SKIP') {
-      setFeedback(f => ({ ...f, [key]: '🚫 AI Validator recommends SKIP. Change settings to override.' }));
+      setFeedback(f => ({ ...f, [key]: '🚫 AI Validator recommends SKIP — not worth recording.' }));
       return;
     }
-    setPlacing(key);
+    setRecording(key);
     try {
       const res = await placeBet(opp.matchId, opp.outcome, null);
       const warn = res.warnings?.length ? ` ⚠️ ${res.warnings[0]}` : '';
-      setFeedback(f => ({ ...f, [key]: `✅ Placed $${res.bet?.stake?.toFixed(2)}${warn}` }));
-      onToast?.(`Bet placed on ${opp.team} — $${res.bet?.stake?.toFixed(2)}`, 'success');
+      setFeedback(f => ({ ...f, [key]: `✅ Recorded $${res.bet?.stake?.toFixed(2)}${warn}` }));
+      onToast?.(`Recorded: ${opp.team} — $${res.bet?.stake?.toFixed(2)}`, 'success');
       onBetPlaced();
     } catch (err) {
       setFeedback(f => ({ ...f, [key]: `❌ ${err.message}` }));
       onToast?.(err.message, 'error');
     } finally {
-      setPlacing(null);
+      setRecording(null);
     }
   };
 
@@ -132,7 +132,7 @@ export default function OpportunitiesTable({ opportunities, selectedSport, onBet
             <th className="px-3 py-3">Bet</th>
             <th className="px-3 py-3 text-right">Odds</th>
             <th className="px-3 py-3 text-right">Prob</th>
-            <th className="px-3 py-3 text-right">Edge</th>
+            <th className="px-3 py-3 text-right">EV</th>
             <th className="px-3 py-3 text-right">Stake</th>
             <th className="px-3 py-3">Line</th>
             <th className="px-3 py-3">Flags</th>
@@ -237,14 +237,14 @@ export default function OpportunitiesTable({ opportunities, selectedSport, onBet
                   {/* Action */}
                   <td className="px-3 py-3">
                     <button
-                      onClick={() => handlePlace(opp)}
-                      disabled={placing === key || decision === 'SKIP'}
-                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors
+                      onClick={() => handleRecord(opp)}
+                      disabled={recording === key || decision === 'SKIP'}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap
                         ${decision === 'SKIP'
                           ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                           : 'bg-blue-600 hover:bg-blue-500 disabled:opacity-50'}`}
                     >
-                      {placing === key ? '…' : 'Place'}
+                      {recording === key ? '…' : 'Record Bet'}
                     </button>
                   </td>
                 </tr>
@@ -322,8 +322,9 @@ function ConfidenceBadge({ level }) {
 function EdgeBadge({ edge }) {
   const pct = (edge * 100).toFixed(1);
   if (edge >= 0.20) return <span className="px-2 py-0.5 rounded text-xs font-bold bg-red-700 text-white">{pct}%</span>;
-  if (edge >= 0.10) return <span className="px-2 py-0.5 rounded text-xs font-bold bg-green-700 text-white">{pct}%</span>;
-  return <span className="px-2 py-0.5 rounded text-xs font-bold bg-yellow-700 text-white">{pct}%</span>;
+  if (edge >= 0.08) return <span className="px-2 py-0.5 rounded text-xs font-bold bg-green-700 text-white">{pct}%</span>;
+  if (edge >= 0.04) return <span className="px-2 py-0.5 rounded text-xs font-bold bg-yellow-700 text-white">{pct}%</span>;
+  return <span className="px-2 py-0.5 rounded text-xs font-bold bg-gray-600 text-gray-300">{pct}%</span>;
 }
 
 function LineTag({ status }) {
@@ -335,7 +336,8 @@ function LineTag({ status }) {
 function ProbBreakdown({ opp }) {
   const implied = opp.odds > 0 ? (1 / opp.odds) : 0;
   const model   = opp.probability ?? 0;
-  const diff    = model - implied;
+  const probGap = model - implied;
+  const ev      = opp.edge ?? 0; // stored as EV: model_prob × odds − 1
   return (
     <div className="flex flex-wrap gap-6 text-xs text-gray-400">
       <div>
@@ -343,14 +345,21 @@ function ProbBreakdown({ opp }) {
         <span className="text-white font-mono font-bold">{(model * 100).toFixed(1)}%</span>
       </div>
       <div>
-        <span className="text-gray-500">Implied prob </span>
+        <span className="text-gray-500">Market implied </span>
         <span className="text-white font-mono">{(implied * 100).toFixed(1)}%</span>
       </div>
       <div>
-        <span className="text-gray-500">Difference </span>
-        <span className={`font-mono font-bold ${diff >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-          {diff >= 0 ? '+' : ''}{(diff * 100).toFixed(1)}pp
+        <span className="text-gray-500">Prob gap </span>
+        <span className={`font-mono font-bold ${probGap >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+          {probGap >= 0 ? '+' : ''}{(probGap * 100).toFixed(1)}pp
         </span>
+      </div>
+      <div>
+        <span className="text-gray-500">EV </span>
+        <span className={`font-mono font-bold ${ev >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+          {ev >= 0 ? '+' : ''}{(ev * 100).toFixed(1)}%
+        </span>
+        <span className="text-gray-600 ml-1 text-xs">per $1</span>
       </div>
       <div>
         <span className="text-gray-500">Odds </span>

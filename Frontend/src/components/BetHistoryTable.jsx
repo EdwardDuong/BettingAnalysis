@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { updateResult, exportCsv } from '../services/api.js';
 
-const SPORT_EMOJI = { EPL: '⚽', AFL: '🏈', NRL: '🏉', NBA: '🏀', Esports: '🎮' };
+const SPORT_EMOJI = { EPL: '⚽', LaLiga: '⚽', Bundesliga: '⚽', SerieA: '⚽', Ligue1: '⚽', AFL: '🏈', NRL: '🏉', NBA: '🏀', Esports: '🎮' };
 const fmt = (n) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(n ?? 0);
 
 export default function BetHistoryTable({ history, onResultUpdated }) {
@@ -39,7 +39,7 @@ export default function BetHistoryTable({ history, onResultUpdated }) {
   const pendingCount = history.filter(b => b.result === 'Pending').length;
 
   if (history.length === 0)
-    return <div className="text-center text-gray-500 py-16 text-sm">No bets placed yet.</div>;
+    return <div className="text-center text-gray-500 py-16 text-sm">No bets recorded yet. Use "Record Bet" on the Opportunities tab to log a bet.</div>;
 
   return (
     <div className="space-y-4">
@@ -55,7 +55,7 @@ export default function BetHistoryTable({ history, onResultUpdated }) {
           className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-48"
         />
         <span className="text-gray-500 text-xs flex-1">
-          {displayed.length} of {history.length} bet{history.length !== 1 ? 's' : ''}
+          {displayed.length} of {history.length} recorded bet{history.length !== 1 ? 's' : ''}
           {pendingCount > 0 && (
             <span className="ml-2 bg-orange-600 text-white text-xs rounded-full px-1.5 py-0.5">
               {pendingCount} pending
@@ -94,10 +94,10 @@ export default function BetHistoryTable({ history, onResultUpdated }) {
               <th className="px-3 py-3 text-right">Odds</th>
               <th className="px-3 py-3 text-right">Close</th>
               <th className="px-3 py-3 text-right">CLV</th>
-              <th className="px-3 py-3 text-right">Edge</th>
+              <th className="px-3 py-3 text-right">EV</th>
               <th className="px-3 py-3 text-right">Stake</th>
               <th className="px-3 py-3">Line</th>
-              <th className="px-3 py-3">Placed</th>
+              <th className="px-3 py-3">Recorded</th>
               <th className="px-3 py-3 text-center">Result</th>
               <th className="px-3 py-3 text-right">PnL</th>
               <th className="px-3 py-3">Mark Result</th>

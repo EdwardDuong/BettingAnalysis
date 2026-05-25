@@ -1,3 +1,5 @@
+using BettingAnalysis.Interfaces;
+
 namespace BettingAnalysis.Services;
 
 /// <summary>
@@ -22,7 +24,7 @@ namespace BettingAnalysis.Services;
 ///   CLV ~  0%  = Break-even (edge eaten by vig over time)
 ///   CLV < −2%  = Model is wrong or timing is poor — review required
 /// </summary>
-public class CLVService
+public class CLVService : ICLVService
 {
     public double CalculateCLV(decimal placedOdds, decimal closingOdds)
     {
