@@ -1,3 +1,4 @@
+using BettingAnalysis.Interfaces;
 using BettingAnalysis.Models;
 
 namespace BettingAnalysis.Services;
@@ -5,70 +6,44 @@ namespace BettingAnalysis.Services;
 /// <summary>
 /// AI Validation Layer — scores and classifies betting opportunities.
 ///
-/// This service does NOT predict outcomes. It validates opportunities produced by
-/// the Poisson model by applying a second, independent rule set focused purely
-/// on risk control and market efficiency signals.
-///
-/// Philosophy:
-///   → Reduce bad bets, not maximise bet count
-///   → Flag uncertainty rather than guess through it
-///   → Reward consistency, penalise variance
+/// Score combines two independent dimensions:
+///   1. EV (expected profit per dollar) — is the bet mathematically worth it?
+///   2. Win probability — how often will it win? (affects variance and comfort)
 ///
 /// Scoring (0–10):
-///   Base score: 5
-///   Edge bonuses: +1 if edge > 7%, +2 if edge > 10%
-///   Major penalties (−2): HIGH_EDGE, LINE_MOVING_AGAINST
-///   Minor penalties (−1): ODDS_TOO_LOW, HIGH_VARIANCE, CORRELATED_BET, BAD_TIMING, EPL_LOW_EDGE
+///   Base: 5
+///   EV bonuses:   +1 at threshold+3%,  +2 at threshold+6%
+///   Probability:  +2 if prob > 65%  (comfortable win rate, realises edge quickly)
+///                 +1 if prob > 50%  (slight favourite)
+///                 −1 if prob < 35%  (longshot — expect losing streaks)
+///   Steaming:     +1 (sharp money confirming model)
+///   Drifting:     −2, forced SKIP (market disagrees — do not record)
+///   BadTiming:    −1
+///   HIGH_EDGE:    warning flag only, no score penalty
 ///   Clamped to [0, 10]
 ///
 /// Decision:
-///   GOOD_BET → score ≥ 6, edge ≥ 6%, no major flags
-///   RISKY    → 1–2 flags OR score 3–5
-///   SKIP     → edge < 5%, score ≤ 2, or 3+ flags
+///   GOOD_BET → EV ≥ threshold + score ≥ 6 + no drifting
+///   RISKY    → EV ≥ threshold + score < 6  (positive EV but low win prob or concern)
+///   SKIP     → EV < threshold OR line drifting
 /// </summary>
-public class AIValidatorService
+public class AIValidatorService : IAIValidatorService
 {
-    private readonly BettingConfigService  _cfg;
+    private readonly IBettingConfigService _cfg;
 
-    // Thresholds (also configurable via BettingConfig)
-    private const double EdgeSkipBelow      = 0.05;
-    private const double EdgeGoodAbove      = 0.06;
-    private const double EdgeBonusLow       = 0.07;
-    private const double EdgeBonusHigh      = 0.10;
-    private const double EdgeHighFlag       = 0.15;
-    private const double OddsLowThreshold   = 1.50;
-    private const double OddsHighThreshold  = 3.00;
-    private const double EplEfficiencyEdge  = 0.08;
+    public AIValidatorService(IBettingConfigService cfg) => _cfg = cfg;
 
-    public AIValidatorService(BettingConfigService cfg) => _cfg = cfg;
-
-    /// <summary>
-    /// Validate a list of opportunities. Operates on the full list so it can
-    /// detect correlation (multiple bets on the same match).
-    /// </summary>
     public List<ValidatedBet> Validate(List<BetOpportunity> opportunities)
     {
-        var perMatch = opportunities
-            .GroupBy(o => o.MatchId)
-            .ToDictionary(g => g.Key, g => g.Count());
-
+        var emptyPerMatch = new Dictionary<string, int>();
         return opportunities
-            .Select(opp => ValidateOne(opp, perMatch, parlayMode: false))
+            .Select(opp => ValidateOne(opp, emptyPerMatch, parlayMode: false))
             .ToList();
     }
 
-    /// <summary>
-    /// Parlay-aware validation. Relaxes the edge-based SKIP threshold — a leg with
-    /// 2%+ edge still contributes positive EV when multiplied across a combo.
-    /// SKIP is reserved for bets with 3+ risk flags or score ≤ 2.
-    /// Correlation detection is also suppressed (the ParlayService enforces
-    /// one leg per match structurally).
-    /// </summary>
     public List<ValidatedBet> ValidateForParlay(List<BetOpportunity> opportunities)
     {
-        // No perMatch correlation detection for parlays — enforced structurally
         var emptyPerMatch = new Dictionary<string, int>();
-
         return opportunities
             .Select(opp => ValidateOne(opp, emptyPerMatch, parlayMode: true))
             .ToList();
@@ -76,49 +51,42 @@ public class AIValidatorService
 
     private ValidatedBet ValidateOne(BetOpportunity opp, Dictionary<string, int> perMatch, bool parlayMode)
     {
-        var flags = new List<string>();
-        int score = 5;
+        var config = _cfg.Get();
+        var flags  = new List<string>();
+        int score  = 5;
 
-        // ── Rule 1: Edge rules ────────────────────────────────────────────────
-        if (opp.Edge > EdgeHighFlag)
-        {
-            // High edge often signals stale odds, missing team news, or model error
-            flags.Add(ValidationFlags.HighEdge);
-            score -= 2;
-        }
+        double edgeSkip      = config.EdgeThreshold;
+        double edgeBonusLow  = config.EdgeThreshold + 0.03;
+        double edgeBonusHigh = config.EdgeThreshold + 0.06;
 
-        // ── Rule 2: Odds rules ────────────────────────────────────────────────
-        if ((double)opp.Odds < OddsLowThreshold)
-        {
-            // At odds < 1.5, you need an 80%+ strike rate — very punishing on misses
-            flags.Add(ValidationFlags.OddsTooLow);
-            score -= 1;
-        }
+        // ── EV bonuses ────────────────────────────────────────────────────────
+        if (opp.Edge > edgeBonusHigh)      score += 2;
+        else if (opp.Edge > edgeBonusLow)  score += 1;
 
-        if ((double)opp.Odds > OddsHighThreshold)
-        {
-            // High odds = high variance = Kelly recommends small stakes anyway
-            flags.Add(ValidationFlags.HighVariance);
-            score -= 1;
-        }
+        // ── Win probability factor ─────────────────────────────────────────────
+        // High prob = lower variance, edge realises faster, more comfortable to hold.
+        // Low prob = expect losing streaks even when EV is positive.
+        if (opp.Probability > 0.65)       score += 2;
+        else if (opp.Probability > 0.50)  score += 1;
+        else if (opp.Probability < 0.35)  score -= 1;
 
-        // ── Rule 3: Line movement ─────────────────────────────────────────────
+        // ── Line movement ─────────────────────────────────────────────────────
         if (opp.LineMovementStatus == "Drifting")
         {
-            // Market is moving away from this selection — sharp money disagrees
             flags.Add(ValidationFlags.LineMovingAgainst);
             score -= 2;
         }
         else if (opp.LineMovementStatus == "Steaming")
         {
-            // Positive signal — market agrees. No penalty, add tag for display
             flags.Add(ValidationFlags.Steaming);
-            // Steaming is a positive signal, slight score boost applied via edge bonus below
+            score += 1;
         }
 
-        // ── Rule 4: Timing window ─────────────────────────────────────────────
-        // OddsService already filters by window, but check again for defence-in-depth
-        var config = _cfg.Get();
+        // ── Suspiciously high EV — warn only ─────────────────────────────────
+        if (opp.Edge > config.HighEdgeThreshold)
+            flags.Add(ValidationFlags.HighEdge);
+
+        // ── Timing window ─────────────────────────────────────────────────────
         var hoursUntil = opp.HoursUntilKickoff;
         if (hoursUntil < config.PreMatchMinHours || hoursUntil > config.PreMatchMaxHours)
         {
@@ -126,45 +94,16 @@ public class AIValidatorService
             score -= 1;
         }
 
-        // ── Rule 5: Correlation ────────────────────────────────────────────────
-        // Suppressed in parlay mode — ParlayService enforces one leg per match structurally
-        if (!parlayMode && perMatch.TryGetValue(opp.MatchId, out int count) && count > 1)
-        {
-            // Multiple outcomes on the same match are partially correlated
-            flags.Add(ValidationFlags.CorrelatedBet);
-            score -= 1;
-        }
-
-        // ── Rule 6: Market efficiency (EPL) ───────────────────────────────────
-        if (opp.SportType == SportType.EPL && opp.Edge < EplEfficiencyEdge)
-        {
-            // EPL is the most efficiently priced football league.
-            // Edge < 8% in EPL is not convincing enough — markets are too tight.
-            flags.Add(ValidationFlags.EplLowEdge);
-            score -= 1;
-        }
-
-        // ── Edge bonuses ──────────────────────────────────────────────────────
-        if (opp.Edge > EdgeBonusHigh)      score += 2;
-        else if (opp.Edge > EdgeBonusLow)  score += 1;
-
-        // Clamp score to [0, 10]
         score = Math.Clamp(score, 0, 10);
 
         // ── Decision ──────────────────────────────────────────────────────────
-        var majorFlags = flags.Where(f => f is ValidationFlags.HighEdge or ValidationFlags.LineMovingAgainst).ToList();
-        var minorFlags = flags.Except(majorFlags).Where(f => f != ValidationFlags.Steaming).ToList();
-        var totalRiskFlags = majorFlags.Count + minorFlags.Count;
+        bool isDrifting = flags.Contains(ValidationFlags.LineMovingAgainst);
+        bool skipByEdge = !parlayMode && opp.Edge < edgeSkip;
 
         string decision;
-        // In parlay mode, low edge alone is never a SKIP reason — combined EV can still be positive.
-        // Only SKIP for truly bad bets: too many risk flags or very low score.
-        bool skipByEdge = !parlayMode && opp.Edge < EdgeSkipBelow;
-        if (skipByEdge || totalRiskFlags >= 3 || score <= 2)
+        if (skipByEdge || isDrifting)
             decision = "SKIP";
-        else if (majorFlags.Count >= 1 || minorFlags.Count >= 2 || score <= 5)
-            decision = "RISKY";
-        else if (opp.Edge >= EdgeGoodAbove && score >= 6)
+        else if (score >= 6)
             decision = "GOOD_BET";
         else
             decision = "RISKY";
@@ -177,35 +116,42 @@ public class AIValidatorService
             Decision = decision,
             Score    = score,
             Flags    = flags,
-            Reason   = BuildReason(opp, decision, score, flags, majorFlags, minorFlags)
+            Reason   = BuildReason(opp, decision, score, flags, edgeSkip)
         };
     }
 
     private static string BuildReason(
         BetOpportunity opp, string decision, int score,
-        List<string> allFlags, List<string> majorFlags, List<string> minorFlags)
+        List<string> flags, double edgeSkip)
     {
-        var riskFlags = allFlags.Where(f => f != ValidationFlags.Steaming).ToList();
+        bool steaming = flags.Contains(ValidationFlags.Steaming);
+        bool drifting = flags.Contains(ValidationFlags.LineMovingAgainst);
+        bool highEdge = flags.Contains(ValidationFlags.HighEdge);
+        bool badTiming = flags.Contains(ValidationFlags.BadTiming);
+        string probDesc = opp.Probability > 0.65 ? "high win probability"
+                        : opp.Probability > 0.50 ? "slight favourite"
+                        : opp.Probability > 0.35 ? "uncertain outcome"
+                        : "longshot — expect frequent losses";
 
         if (decision == "GOOD_BET")
         {
-            var steamNote = allFlags.Contains(ValidationFlags.Steaming) ? " Market steaming in our favour." : "";
-            return $"Edge {opp.Edge:P1} at odds {opp.Odds:F2} — solid value, no major concerns. Score {score}/10.{steamNote}";
+            var note = steaming ? " Sharp money agrees." : "";
+            return $"EV +{opp.Edge:P1} · {opp.Probability * 100:F0}% win prob ({probDesc}) · Score {score}/10.{note}";
         }
 
         if (decision == "SKIP")
         {
-            if (opp.Edge < EdgeSkipBelow)
-                return $"Edge {opp.Edge:P1} is below the 5% minimum. No value.";
-            if (majorFlags.Any())
-                return $"Blocked by: {string.Join(", ", majorFlags)}. Score {score}/10. Too risky.";
-            return $"{riskFlags.Count} risk flags accumulated — risk/reward unfavourable. Score {score}/10.";
+            if (opp.Edge < edgeSkip)
+                return $"EV {opp.Edge:P1} is below the {edgeSkip:P0} minimum — no value.";
+            return "Line drifting — sharp money moving against this selection. Do not record.";
         }
 
         // RISKY
-        if (majorFlags.Any())
-            return $"Major concern: {string.Join(", ", majorFlags)}. Reduce stake or skip. Score {score}/10.";
-
-        return $"Minor flags: {string.Join(", ", minorFlags)}. Proceed with reduced stake. Score {score}/10.";
+        var reasons = new List<string>();
+        if (opp.Probability < 0.35) reasons.Add($"longshot ({opp.Probability * 100:F0}% win prob) — expect losing streaks, needs 50+ bets to realise edge");
+        if (highEdge)   reasons.Add("unusually high EV — verify odds are current");
+        if (badTiming)  reasons.Add("outside ideal timing window");
+        if (steaming)   reasons.Add("steaming line is a positive sign");
+        return $"EV +{opp.Edge:P1} · Score {score}/10 · {string.Join("; ", reasons)}.";
     }
 }
