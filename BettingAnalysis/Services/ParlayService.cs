@@ -1,3 +1,4 @@
+using BettingAnalysis.Interfaces;
 using BettingAnalysis.Models;
 
 namespace BettingAnalysis.Services;
@@ -5,34 +6,29 @@ namespace BettingAnalysis.Services;
 /// <summary>
 /// Builds recommended multi-leg parlay combos from the parlay candidate pool.
 ///
-/// Eligibility (evaluated after parlay-mode AI validation):
-///   ✅ GOOD_BET and RISKY are both allowed as legs
-///   ✅ Edge ≥ ParlayMinEdge (default 2%) per leg
-///   ❌ SKIP (truly bad — 3+ flags or score ≤ 2) is excluded
-///   ❌ Drifting lines are excluded (risk compounds across legs)
-///   ❌ HIGH_EDGE flag excluded (suspicious false-edge risk)
+/// Tier rules (minimum 3 legs):
+///   Safe (3-leg)       → favourites only (prob ≥ 55%), GOOD_BET score ≥ 6
+///                        min combined prob: 20%  (≈ three 58% legs)
+///   Medium (4-leg)     → GOOD_BET only, any probability
+///                        min combined prob: 12%
+///   Aggressive (5-leg) → GOOD_BET score ≥ 7
+///                        min combined prob: 6%
 ///
-/// One combo is built per leg count (2–5). Each combo uses a different
-/// sorting strategy so the combos are genuinely distinct:
-///   2-leg  → highest AI score  (Safe, most confident picks)
-///   3-leg  → highest edge      (Medium, value-focused)
-///   4-leg  → highest probability (Aggressive, most likely winners)
-///   5-leg  → score + low variance (Extreme, broadest coverage)
-///
-/// Minimum combined odds: 10.0 (combos below this are skipped).
-/// Sizing: half-Kelly on the combined edge, capped at MaxStakePercent.
+/// A combo is rejected if its combined probability is below the tier floor —
+/// this prevents "Safe" being labelled on a 14% win-rate parlay.
+/// Sizing: half-Kelly capped at per-tier stake limits.
 /// </summary>
-public class ParlayService
+public class ParlayService : IParlayService
 {
-    private readonly BankrollService      _bankroll;
-    private readonly BettingConfigService _cfg;
+    private readonly IBankrollService      _bankroll;
+    private readonly IBettingConfigService _cfg;
 
-    private const int     MinLegs          = 2;
+    private const int     MinLegs          = 3;
     private const int     MaxLegs          = 5;
     private const int     MaxEligible      = 25;
-    private const decimal MinCombinedOdds  = 10.0m;
+    private const decimal MinCombinedOdds  = 3.0m;
 
-    public ParlayService(BankrollService bankroll, BettingConfigService cfg)
+    public ParlayService(IBankrollService bankroll, IBettingConfigService cfg)
     {
         _bankroll = bankroll;
         _cfg      = cfg;
@@ -43,9 +39,8 @@ public class ParlayService
         var config   = _cfg.Get();
         var bankroll = _bankroll.GetBankroll();
 
-        // Base eligibility — AI has already done parlay-mode scoring, so SKIP here
-        // means truly bad (3+ risk flags or score ≤ 2), not just low-edge.
-        var eligible = opportunities
+        // Base eligibility: exclude SKIP, drifting lines, and suspicious HIGH_EDGE.
+        var baseEligible = opportunities
             .Where(o => o.AiValidation?.Decision != "SKIP"
                 && o.LineMovementStatus != "Drifting"
                 && !(o.AiValidation?.Flags?.Contains(ValidationFlags.HighEdge) ?? false)
@@ -53,43 +48,51 @@ public class ParlayService
             .Take(MaxEligible)
             .ToList();
 
-        if (eligible.Count < MinLegs) return [];
+        if (baseEligible.Count < MinLegs) return [];
 
-        // Different sort strategy per leg count — makes each combo genuinely distinct.
-        // GOOD_BET legs are always interleaved first within each pool.
-        var strategies = new (int Legs, string Label, string Strategy, Func<IEnumerable<BetOpportunity>, IEnumerable<BetOpportunity>> Sort)[]
+        // Quality-gated pools per leg count.
+        var goodBet       = baseEligible.Where(o => o.AiValidation?.Decision == "GOOD_BET").ToList();
+        var goodBetScore7 = goodBet.Where(o => (o.AiValidation?.Score ?? 0) >= 7).ToList();
+
+        // Safe pool: favourites only (prob ≥ 55%). Keeps combined win prob reasonable.
+        // Without this, a single longshot leg (e.g. 28% prob) drags the whole combo to ~14% win rate.
+        var safePool = baseEligible
+            .Where(o => o.Probability >= 0.55 && (o.AiValidation?.Score ?? 0) >= 6)
+            .ToList();
+
+        var strategies = new (int Legs, string Label, string Strategy,
+            double MinCombinedProb,
+            List<BetOpportunity> Pool,
+            Func<IEnumerable<BetOpportunity>, IEnumerable<BetOpportunity>> Sort)[]
         {
-            (2, "Safe",
-             "Highest confidence — best AI-scored picks",
-             pool => pool.OrderByDescending(o => o.AiValidation?.Decision == "GOOD_BET" ? 1 : 0)
-                         .ThenByDescending(o => o.AiValidation?.Score ?? 0)
-                         .ThenByDescending(o => o.Odds)),
-
-            (3, "Medium",
-             "Value-focused — highest edge per leg",
-             pool => pool.OrderByDescending(o => o.AiValidation?.Decision == "GOOD_BET" ? 1 : 0)
-                         .ThenByDescending(o => o.Edge)
+            (3, "Safe",
+             "Three favourites (prob ≥ 55%, score ≥ 6) — comfortable win rate",
+             0.20,
+             safePool,
+             pool => pool.OrderByDescending(o => o.Probability)
                          .ThenByDescending(o => o.AiValidation?.Score ?? 0)),
 
-            (4, "Aggressive",
-             "Probability-weighted — most likely winners",
-             pool => pool.OrderByDescending(o => o.AiValidation?.Decision == "GOOD_BET" ? 1 : 0)
-                         .ThenByDescending(o => o.Probability)
+            (4, "Medium",
+             "Four GOOD_BET legs — probability-weighted for best hit rate",
+             0.12,
+             goodBet,
+             pool => pool.OrderByDescending(o => o.Probability)
                          .ThenByDescending(o => o.Edge)),
 
-            (5, "Extreme",
-             "Broadest coverage — low-variance legs",
+            (5, "Aggressive",
+             "Five GOOD_BET legs (score ≥ 7) — maximum bonus, accept lower hit rate",
+             0.06,
+             goodBetScore7,
              pool => pool.OrderByDescending(o => o.AiValidation?.Score ?? 0)
-                         .ThenByDescending(o => o.Edge)
-                         .ThenBy(o => o.Odds)),
+                         .ThenByDescending(o => o.Edge)),
         };
 
         var combos = new List<ParlayCombo>();
 
-        foreach (var (legs, label, strategy, sort) in strategies)
+        foreach (var (legs, label, strategy, minCombProb, pool, sort) in strategies)
         {
-            if (eligible.Count < legs) continue;
-            var combo = BuildBestCombo(sort(eligible).ToList(), legs, label, strategy, config, bankroll);
+            if (pool.Count < legs) continue;
+            var combo = BuildBestCombo(sort(pool).ToList(), legs, label, strategy, minCombProb, config, bankroll);
             if (combo is not null) combos.Add(combo);
         }
 
@@ -101,6 +104,7 @@ public class ParlayService
         int legs,
         string riskLabel,
         string strategy,
+        double minCombinedProb,
         BettingConfig config,
         Bankroll bankroll)
     {
@@ -121,13 +125,24 @@ public class ParlayService
         if (combinedOdds < MinCombinedOdds) return null;
 
         double combinedProb = selected.Aggregate(1.0, (acc, o) => acc * o.Probability);
-        double ev           = (double)combinedOdds * combinedProb - 1.0;
 
+        // Reject if the combined win probability is below the tier floor.
+        // e.g. "Safe" (3-leg) requires ≥ 20% combined prob — if a longshot leg drags it below,
+        // this combo isn't actually safe and shouldn't be shown with that label.
+        if (combinedProb < minCombinedProb) return null;
+
+        double ev = (double)combinedOdds * combinedProb - 1.0;
         if (ev <= 0) return null;
 
+        decimal parlayMaxStake = legs switch
+        {
+            3 => config.Parlay3MaxStake,
+            4 => config.Parlay4MaxStake,
+            _ => config.Parlay5MaxStake,
+        };
         double kellyPct = ev / ((double)combinedOdds - 1.0) * config.KellyFraction;
         decimal stake   = Math.Round(
-            Math.Min((decimal)kellyPct * bankroll.AvailableBankroll, bankroll.MaxStakePerBet), 2);
+            Math.Min((decimal)kellyPct * bankroll.AvailableBankroll, parlayMaxStake), 2);
         stake = Math.Max(stake, 0);
 
         return new ParlayCombo
