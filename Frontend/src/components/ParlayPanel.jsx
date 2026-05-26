@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getParlays } from '../services/api.js';
 
-const SPORT_EMOJI = { EPL: '⚽', AFL: '🏈', NRL: '🏉', NBA: '🏀', Esports: '🎮' };
+const SPORT_EMOJI = { EPL: '⚽', LaLiga: '⚽', Bundesliga: '⚽', SerieA: '⚽', Ligue1: '⚽', AFL: '🏈', NRL: '🏉', NBA: '🏀', Esports: '🎮' };
 
 const RISK_STYLE = {
   Safe:       { bg: 'bg-green-900 border-green-700',   text: 'text-green-300',  badge: 'bg-green-700'  },
@@ -48,9 +48,14 @@ export default function ParlayPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="text-xs text-gray-500 flex items-center gap-2">
-        <span>🎰</span>
-        <span>Edge ≥ 2% · combined odds ≥ 10 · GOOD_BET legs prioritised · Drifting &amp; SKIP excluded · Half-Kelly sized</span>
+      <div className="bg-blue-950 border border-blue-800 rounded-xl px-4 py-3 text-xs text-blue-300 flex items-start gap-2">
+        <span className="mt-0.5">📋</span>
+        <div>
+          <span className="font-semibold text-blue-200">Analysis only — model-generated recommendations.</span>
+          {' '}These combos are built automatically from current GOOD_BET / RISKY legs.
+          To track a parlay, record each leg individually using <span className="font-semibold">Record Bet</span> on the Opportunities tab.
+          Drifting lines and SKIP bets are always excluded. GOOD_BET legs are prioritised.
+        </div>
       </div>
 
       {combos.map(combo => {
