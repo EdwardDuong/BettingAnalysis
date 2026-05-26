@@ -1,6 +1,6 @@
 namespace BettingAnalysis.Models;
 
-public enum SportType { EPL, AFL, NRL, NBA, Esports }
+public enum SportType { EPL, AFL, NRL, NBA, Esports, LaLiga, Bundesliga, SerieA, Ligue1 }
 
 /// <summary>
 /// A pre-match fixture with current and previous bookmaker odds.

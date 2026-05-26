@@ -8,15 +8,17 @@ namespace BettingAnalysis.Services;
 /// Fetches real pre-match odds from The Odds API (https://the-odds-api.com).
 /// Free tier: 500 requests/month. Each call to GetRealOdds() costs 1 request per sport.
 ///
-/// Sign up at https://the-odds-api.com to get a free API key.
-/// Set it in appsettings.json under BettingSettings:OddsApiKey.
-///
 /// Sport key mapping:
-///   EPL      → soccer_epl
-///   AFL      → aussie_rules_afl
-///   NRL      → rugbyleague_nrl
-///   NBA      → basketball_nba
-///   Esports  → esports_csgo (CS2 — most liquid esports market)
+///   EPL        → soccer_epl
+///   LaLiga     → soccer_spain_la_liga
+///   Bundesliga → soccer_germany_bundesliga
+///   SerieA     → soccer_italy_serie_a
+///   Ligue1     → soccer_france_ligue_one
+///   AFL        → aussierules_afl
+///   NRL        → rugbyleague_nrl
+///   NBA        → basketball_nba
+///
+/// European football is off-season June–July; leagues resume ~August.
 /// </summary>
 public class TheOddsApiService
 {
@@ -24,14 +26,32 @@ public class TheOddsApiService
     private readonly string _apiKey;
     private readonly ILogger<TheOddsApiService> _logger;
 
-    // Maps our SportType enum to The Odds API sport keys (verified active keys)
+    // Maps our SportType enum to The Odds API sport keys
     private static readonly Dictionary<SportType, string> SportKeys = new()
     {
-        { SportType.EPL,     "soccer_epl"         },
-        { SportType.AFL,     "aussierules_afl"    },  // Fixed: was aussie_rules_afl (wrong)
-        { SportType.NRL,     "rugbyleague_nrl"    },
-        { SportType.NBA,     "basketball_nba"     },
-        // Esports has no active key on The Odds API — handled by OddsService mock fallback
+        { SportType.EPL,        "soccer_epl"                   },
+        { SportType.LaLiga,     "soccer_spain_la_liga"         },
+        { SportType.Bundesliga, "soccer_germany_bundesliga"    },
+        { SportType.SerieA,     "soccer_italy_serie_a"         },
+        { SportType.Ligue1,     "soccer_france_ligue_one"      },
+        { SportType.AFL,        "aussierules_afl"              },
+        { SportType.NRL,        "rugbyleague_nrl"              },
+        { SportType.NBA,        "basketball_nba"               },
+    };
+
+    // Soccer leagues that use the Poisson goal model (as opposed to score-based calibration)
+    private static readonly HashSet<SportType> SoccerLeagues = new()
+        { SportType.EPL, SportType.LaLiga, SportType.Bundesliga, SportType.SerieA, SportType.Ligue1 };
+
+    // League-specific average goals per match (home, away) and historical home win rates.
+    // Used to scale our Poisson model so probabilities are independent of raw market odds.
+    private static readonly Dictionary<SportType, (double AvgHome, double AvgAway, double AvgHomeWinRate, double AvgAwayWinRate)> SoccerParams = new()
+    {
+        { SportType.EPL,        (1.45, 1.05, 0.46, 0.29) },
+        { SportType.LaLiga,     (1.55, 1.10, 0.50, 0.25) },  // High home advantage historically
+        { SportType.Bundesliga, (1.60, 1.30, 0.44, 0.30) },  // Higher scoring, fewer draws
+        { SportType.SerieA,     (1.40, 1.00, 0.44, 0.29) },  // More defensive
+        { SportType.Ligue1,     (1.45, 1.05, 0.44, 0.29) },  // Similar to EPL
     };
 
     private static readonly JsonSerializerOptions JsonOpts = new()
@@ -47,6 +67,8 @@ public class TheOddsApiService
     }
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(_apiKey);
+
+    public static bool IsSoccerLeague(SportType sport) => SoccerLeagues.Contains(sport);
 
     /// <summary>
     /// Fetch live pre-match odds for all configured sports.
@@ -160,29 +182,22 @@ public class TheOddsApiService
         double fairHome = rawHome / total;
         double fairAway = rawAway / total;
 
-        // Estimate Poisson lambdas from fair win probabilities
-        // EPL average: ~1.45 home goals, ~1.05 away goals per match
-        // Scale by team strength (fair probability relative to league average)
-        const double avgHomeGoals = 1.45;
-        const double avgAwayGoals = 1.05;
-        const double leagueAvgHomeWin = 0.46; // Historical EPL home win rate
-        const double leagueAvgAwayWin = 0.29;
-
         double homeLambda, awayLambda;
 
-        if (sport == SportType.EPL)
+        if (SoccerLeagues.Contains(sport))
         {
-            // Scale average goals by relative strength vs league mean
-            homeLambda = avgHomeGoals * (fairHome / leagueAvgHomeWin);
-            awayLambda = avgAwayGoals * (fairAway / leagueAvgAwayWin);
-            // Clamp EPL goal lambdas to a reasonable range (0.3 – 3.5)
+            // All soccer leagues: Poisson goal model with league-specific averages.
+            // Scale each team's expected goals by relative strength vs league mean.
+            var p = SoccerParams.TryGetValue(sport, out var sp) ? sp : SoccerParams[SportType.EPL];
+            homeLambda = p.AvgHome * (fairHome / p.AvgHomeWinRate);
+            awayLambda = p.AvgAway * (fairAway / p.AvgAwayWinRate);
             homeLambda = Math.Clamp(homeLambda, 0.3, 3.5);
             awayLambda = Math.Clamp(awayLambda, 0.3, 3.5);
         }
         else
         {
-            // Apply home-advantage calibration so the model probability differs from
-            // the raw market implied probability — without this the edge is always ≤ 0.
+            // Non-soccer: apply home-advantage calibration factor so model prob
+            // differs from raw market — without this the edge is always ≤ 0.
             HomeCalibration.TryGetValue(sport, out var cal);
             double adjHome = fairHome * (cal == default ? 1.0 : cal.Home);
             double adjAway = fairAway * (cal == default ? 1.0 : cal.Away);
@@ -197,7 +212,7 @@ public class TheOddsApiService
             HomeTeam       = ev.HomeTeam,
             AwayTeam       = ev.AwayTeam,
             HomeOdds       = homeOdds,
-            DrawOdds       = sport == SportType.EPL ? drawOdds : null,
+            DrawOdds       = SoccerLeagues.Contains(sport) ? drawOdds : null,
             AwayOdds       = awayOdds,
             MatchStartTime = ev.CommenceTime,
             SportType      = sport,
