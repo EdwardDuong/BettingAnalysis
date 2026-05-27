@@ -21,6 +21,21 @@ public class BettingConfig
     /// <summary>Rule: Hard cap on stake as fraction of bankroll (default 3%).</summary>
     public double MaxStakePercent { get; set; } = 0.03;
 
+    /// <summary>Dollar cap for GOOD_BET decisions. Kelly may suggest less; this is the ceiling.</summary>
+    public decimal GoodBetMaxStake { get; set; } = 500m;
+
+    /// <summary>Dollar cap for RISKY decisions. Keeps exposure low on less certain bets.</summary>
+    public decimal RiskyMaxStake { get; set; } = 50m;
+
+    /// <summary>Dollar cap for 3-leg parlay (Safe tier).</summary>
+    public decimal Parlay3MaxStake { get; set; } = 100m;
+
+    /// <summary>Dollar cap for 4-leg parlay (Medium tier).</summary>
+    public decimal Parlay4MaxStake { get; set; } = 75m;
+
+    /// <summary>Dollar cap for 5-leg parlay (Aggressive tier).</summary>
+    public decimal Parlay5MaxStake { get; set; } = 50m;
+
     // ── Bankroll limits ───────────────────────────────────────────────────────
     /// <summary>Rule: Stop betting for the day if daily loss exceeds this fraction (default 10%).</summary>
     public double DailyLossLimitPercent { get; set; } = 0.10;

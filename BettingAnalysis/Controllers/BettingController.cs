@@ -1,39 +1,49 @@
+using BettingAnalysis.Hubs;
+using BettingAnalysis.Interfaces;
 using BettingAnalysis.Models;
 using BettingAnalysis.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
+using static BettingAnalysis.Services.LineMovement;
 
 namespace BettingAnalysis.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("[controller]")]
 public class BettingController : ControllerBase
 {
-    private readonly OddsService          _odds;
-    private readonly PoissonService       _poisson;
-    private readonly EdgeService          _edge;
-    private readonly BetSizingService     _sizing;
-    private readonly BankrollService      _bankroll;
-    private readonly BettingLoggingService _log;
-    private readonly ValidationService    _validation;
-    private readonly LineMovementService  _lineMovement;
-    private readonly CLVService           _clv;
-    private readonly BettingConfigService _cfg;
-    private readonly AIValidatorService   _aiValidator;
-    private readonly ParlayService        _parlay;
+    private readonly IOddsService                    _odds;
+    private readonly IPoissonService                 _poisson;
+    private readonly IEdgeService                    _edge;
+    private readonly IBetSizingService               _sizing;
+    private readonly IBankrollService                _bankroll;
+    private readonly IBettingLoggingService          _log;
+    private readonly IValidationService              _validation;
+    private readonly ILineMovementService            _lineMovement;
+    private readonly ICLVService                     _clv;
+    private readonly IBettingConfigService           _cfg;
+    private readonly IAIValidatorService             _aiValidator;
+    private readonly IParlayService                  _parlay;
+    private readonly IHubContext<BettingHub>         _hub;
+    private readonly IBankrollSnapshotRepository     _snapshots;
 
     public BettingController(
-        OddsService           odds,
-        PoissonService        poisson,
-        EdgeService           edge,
-        BetSizingService      sizing,
-        BankrollService       bankroll,
-        BettingLoggingService log,
-        ValidationService     validation,
-        LineMovementService   lineMovement,
-        CLVService            clv,
-        BettingConfigService  cfg,
-        AIValidatorService    aiValidator,
-        ParlayService         parlay)
+        IOddsService                 odds,
+        IPoissonService              poisson,
+        IEdgeService                 edge,
+        IBetSizingService            sizing,
+        IBankrollService             bankroll,
+        IBettingLoggingService       log,
+        IValidationService           validation,
+        ILineMovementService         lineMovement,
+        ICLVService                  clv,
+        IBettingConfigService        cfg,
+        IAIValidatorService          aiValidator,
+        IParlayService               parlay,
+        IHubContext<BettingHub>      hub,
+        IBankrollSnapshotRepository  snapshots)
     {
         _odds         = odds;
         _poisson      = poisson;
@@ -47,6 +57,8 @@ public class BettingController : ControllerBase
         _cfg          = cfg;
         _aiValidator  = aiValidator;
         _parlay       = parlay;
+        _hub          = hub;
+        _snapshots    = snapshots;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -88,7 +100,7 @@ public class BettingController : ControllerBase
                 ("Home", match.HomeTeam, match.HomeOdds, match.PreviousHomeOdds, prediction.HomeWinProb),
                 ("Away", match.AwayTeam, match.AwayOdds, match.PreviousAwayOdds, prediction.AwayWinProb),
             };
-            if (match.DrawOdds.HasValue && match.SportType == SportType.EPL)
+            if (match.DrawOdds.HasValue && TheOddsApiService.IsSoccerLeague(match.SportType))
                 candidates.Add(("Draw", "Draw", match.DrawOdds.Value, match.PreviousDrawOdds, prediction.DrawProb));
 
             foreach (var (outcome, team, odds, prevOdds, prob) in candidates)
@@ -131,6 +143,12 @@ public class BettingController : ControllerBase
         foreach (var opp in opportunities)
         {
             opp.AiValidation = validated.FirstOrDefault(v => v.MatchId == opp.MatchId && v.Outcome == opp.Outcome);
+            opp.SuggestedStake = opp.AiValidation?.Decision switch
+            {
+                "GOOD_BET" => Math.Min(opp.SuggestedStake, config.GoodBetMaxStake),
+                "RISKY"    => Math.Min(opp.SuggestedStake, config.RiskyMaxStake),
+                _          => 0m,
+            };
         }
 
         // Sort: GOOD_BET first, then by AI score desc, then by edge desc
@@ -148,6 +166,7 @@ public class BettingController : ControllerBase
     // ─────────────────────────────────────────────────────────────────────────
 
     [HttpPost("place")]
+    [Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("place-bet")]
     public ActionResult<object> PlaceBet([FromBody] PlaceBetRequest request)
     {
         var preMatch = _odds.GetPreMatchOdds();
@@ -246,13 +265,10 @@ public class BettingController : ControllerBase
     /// Positive CLV = you beat the market — long-term profitable signal.
     /// </summary>
     [HttpPost("result/{id}")]
-    public ActionResult UpdateResult(Guid id, [FromBody] UpdateResultRequest request)
+    public async Task<ActionResult> UpdateResult(Guid id, [FromBody] UpdateResultRequest request)
     {
-        if (request.Result is not ("Win" or "Loss"))
-            return BadRequest("Result must be \"Win\" or \"Loss\".");
-
         var bet = _log.GetById(id);
-        if (bet is null)           return NotFound($"Bet {id} not found.");
+        if (bet is null)             return NotFound($"Bet {id} not found.");
         if (bet.Result != "Pending") return BadRequest("Result already recorded.");
 
         decimal pnl = request.Result == "Win" ? bet.Stake * (bet.Odds - 1m) : -bet.Stake;
@@ -264,13 +280,16 @@ public class BettingController : ControllerBase
         _log.UpdateResult(id, request.Result, pnl, request.ClosingOdds, clvValue);
         _bankroll.UpdateAfterResult(bet.Stake, bet.Odds, request.Result);
 
+        // Push updated bankroll to all connected clients via SignalR
+        await _hub.Clients.All.SendAsync("BankrollUpdated", EnrichedBankroll());
+
         return Ok(new
         {
-            BetId       = id,
-            Result      = request.Result,
-            PnL         = pnl,
-            CLV         = clvValue,
-            CLVLabel    = clvValue.HasValue ? _clv.Interpret(clvValue.Value) : "N/A"
+            BetId    = id,
+            Result   = request.Result,
+            PnL      = pnl,
+            CLV      = clvValue,
+            CLVLabel = clvValue.HasValue ? _clv.Interpret(clvValue.Value) : "N/A"
         });
     }
 
@@ -326,6 +345,7 @@ public class BettingController : ControllerBase
     /// Update live betting configuration. Changes apply immediately — no restart needed.
     /// Also invalidates the odds cache so the new timing window takes effect.
     /// </summary>
+    [Authorize(Roles = "Admin")]
     [HttpPut("settings")]
     public ActionResult UpdateSettings([FromBody] BettingConfig updated)
     {
@@ -400,11 +420,43 @@ public class BettingController : ControllerBase
     /// Optionally accepts a new starting amount in the request body.
     /// Does NOT clear bet history — use for starting a new session.
     /// </summary>
+    [Authorize(Roles = "Admin")]
     [HttpPost("bankroll/reset")]
     public ActionResult ResetBankroll([FromBody] decimal? newAmount = null)
     {
         _bankroll.Reset(newAmount);
         return Ok(new { Message = "Bankroll reset.", Bankroll = EnrichedBankroll() });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GET /Betting/bankroll/history?days=90
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Returns one bankroll data point per day for the last N days.</summary>
+    [HttpGet("bankroll/history")]
+    public async Task<ActionResult> GetBankrollHistory([FromQuery] int days = 90)
+    {
+        days = Math.Clamp(days, 7, 365);
+        var from = DateTime.UtcNow.AddDays(-days);
+        var snapshots = await _snapshots.GetByDateRangeAsync(1, from, DateTime.UtcNow);
+
+        var daily = snapshots
+            .GroupBy(s => s.SnapshotDate.Date)
+            .Select(g => g.OrderByDescending(s => s.SnapshotDate).First())
+            .OrderBy(s => s.SnapshotDate)
+            .Select(s => new
+            {
+                Date           = s.SnapshotDate.ToString("yyyy-MM-dd"),
+                Bankroll       = s.TotalBankroll,
+                TotalPnL       = s.TotalPnL,
+                ROI            = Math.Round(s.ROI * 100, 2),
+                WinRate        = Math.Round(s.WinRate * 100, 1),
+                TotalBets      = s.TotalBetsPlaced,
+                ConsecLosses   = s.ConsecutiveLosses,
+            })
+            .ToList();
+
+        return Ok(daily);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -437,7 +489,7 @@ public class BettingController : ControllerBase
                 ("Home", match.HomeTeam, match.HomeOdds, match.PreviousHomeOdds, prediction.HomeWinProb),
                 ("Away", match.AwayTeam, match.AwayOdds, match.PreviousAwayOdds, prediction.AwayWinProb),
             };
-            if (match.DrawOdds.HasValue && match.SportType == SportType.EPL)
+            if (match.DrawOdds.HasValue && TheOddsApiService.IsSoccerLeague(match.SportType))
                 candidates.Add(("Draw", "Draw", match.DrawOdds.Value, match.PreviousDrawOdds, prediction.DrawProb));
 
             foreach (var (outcome, team, odds, prevOdds, prob) in candidates)
@@ -472,7 +524,15 @@ public class BettingController : ControllerBase
 
         var validated = _aiValidator.ValidateForParlay(opportunities);
         foreach (var opp in opportunities)
+        {
             opp.AiValidation = validated.FirstOrDefault(v => v.MatchId == opp.MatchId && v.Outcome == opp.Outcome);
+            opp.SuggestedStake = opp.AiValidation?.Decision switch
+            {
+                "GOOD_BET" => Math.Min(opp.SuggestedStake, config.GoodBetMaxStake),
+                "RISKY"    => Math.Min(opp.SuggestedStake, config.RiskyMaxStake),
+                _          => 0m,
+            };
+        }
 
         return Ok(_parlay.BuildCombos(opportunities));
     }

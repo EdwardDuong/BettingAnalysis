@@ -29,6 +29,11 @@ public class BettingConfigService : IBettingConfigService
             PreMatchMaxHours       = cfg.GetValue<double>("BettingSettings:PreMatchMaxHoursAhead", 336.0),
             MaxConsecutiveLosses   = cfg.GetValue<int>("BettingSettings:MaxConsecutiveLosses", 3),
             MaxBetsPerMatch        = cfg.GetValue<int>("BettingSettings:MaxBetsPerMatch", 2),
+            GoodBetMaxStake        = cfg.GetValue<decimal>("BettingSettings:GoodBetMaxStake", 500m),
+            RiskyMaxStake          = cfg.GetValue<decimal>("BettingSettings:RiskyMaxStake", 50m),
+            Parlay3MaxStake        = cfg.GetValue<decimal>("BettingSettings:Parlay3MaxStake", 100m),
+            Parlay4MaxStake        = cfg.GetValue<decimal>("BettingSettings:Parlay4MaxStake", 75m),
+            Parlay5MaxStake        = cfg.GetValue<decimal>("BettingSettings:Parlay5MaxStake", 50m),
             TeamBlacklist          = cfg.GetSection("BettingSettings:TeamBlacklist").Get<List<string>>() ?? new(),
             RequireLineMovementCheck = true,
         };
