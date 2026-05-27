@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getSettings, saveSettings } from '../services/api.js';
+import { getSettings, saveSettings, changePassword } from '../services/api.js';
 
 export default function SettingsPanel() {
   const [config, setConfig]   = useState(null);
@@ -40,6 +40,7 @@ export default function SettingsPanel() {
 
   return (
     <div className="space-y-6 max-w-2xl">
+      <ChangePasswordSection />
       {status && (
         <div className={`rounded-lg px-4 py-2.5 text-sm ${
           status.type === 'ok'
@@ -185,3 +186,62 @@ function Field({ label, hint, suffix, children }) {
 }
 
 const input = 'w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500';
+
+function ChangePasswordSection() {
+  const [current,  setCurrent]  = useState('');
+  const [next,     setNext]     = useState('');
+  const [confirm,  setConfirm]  = useState('');
+  const [saving,   setSaving]   = useState(false);
+  const [status,   setStatus]   = useState(null);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setStatus(null);
+    if (next !== confirm) { setStatus({ type: 'error', msg: 'New passwords do not match.' }); return; }
+    if (next.length < 8)  { setStatus({ type: 'error', msg: 'New password must be at least 8 characters.' }); return; }
+    setSaving(true);
+    try {
+      await changePassword(current, next);
+      setStatus({ type: 'ok', msg: 'Password changed successfully.' });
+      setCurrent(''); setNext(''); setConfirm('');
+    } catch (err) {
+      setStatus({ type: 'error', msg: err.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Section title="Change Password">
+      {status && (
+        <div className={`rounded-lg px-4 py-2.5 text-sm ${
+          status.type === 'ok'
+            ? 'bg-green-900 border border-green-600 text-green-200'
+            : 'bg-red-900 border border-red-600 text-red-200'
+        }`}>
+          {status.msg}
+        </div>
+      )}
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <Field label="Current password" hint="">
+          <input type="password" value={current} onChange={e => setCurrent(e.target.value)}
+            placeholder="••••••••" required className={input} />
+        </Field>
+        <Field label="New password" hint="Min 8 characters">
+          <input type="password" value={next} onChange={e => setNext(e.target.value)}
+            placeholder="••••••••" required className={input} />
+        </Field>
+        <Field label="Confirm new password" hint="">
+          <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)}
+            placeholder="••••••••" required className={input} />
+        </Field>
+        <div className="flex justify-end pt-1">
+          <button type="submit" disabled={saving}
+            className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-sm font-semibold text-white transition-colors">
+            {saving ? 'Saving…' : 'Change Password'}
+          </button>
+        </div>
+      </form>
+    </Section>
+  );
+}

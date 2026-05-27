@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTheme } from './hooks/useTheme.js';
+import { useSignalR } from './hooks/useSignalR.js';
 import BankrollPanel      from './components/BankrollPanel.jsx';
 import OpportunitiesTable from './components/OpportunitiesTable.jsx';
 import BetHistoryTable    from './components/BetHistoryTable.jsx';
@@ -8,13 +9,21 @@ import ParlayPanel        from './components/ParlayPanel.jsx';
 import AnalyticsPanel     from './components/AnalyticsPanel.jsx';
 import RejectedBetsPanel  from './components/RejectedBetsPanel.jsx';
 import Toast              from './components/Toast.jsx';
-import { getOpportunities, getHistory, getBankroll, getStats, getParlays, refreshOdds } from './services/api.js';
+import LoginPage          from './components/LoginPage.jsx';
+import {
+  getOpportunities, getHistory, getBankroll, getStats, getParlays, refreshOdds,
+  isAuthenticated, getUser, logout,
+} from './services/api.js';
 
-const SPORTS      = ['All', 'EPL', 'AFL', 'NRL', 'NBA', 'Esports'];
+const SPORTS      = ['All', 'EPL', 'LaLiga', 'Bundesliga', 'SerieA', 'Ligue1', 'NRL', 'AFL', 'NBA', 'Esports'];
 const MAIN_TABS   = ['Opportunities', 'Parlays', 'History', 'Analytics', 'Rejected', 'Settings'];
-const SPORT_EMOJI = { EPL: '⚽', AFL: '🏈', NRL: '🏉', NBA: '🏀', Esports: '🎮', All: '🌐' };
+const SPORT_EMOJI = {
+  EPL: '⚽', LaLiga: '⚽', Bundesliga: '⚽', SerieA: '⚽', Ligue1: '⚽',
+  AFL: '🏈', NRL: '🏉', NBA: '🏀', Esports: '🎮', All: '🌐',
+};
 
 export default function App() {
+  const [user,          setUser]          = useState(() => getUser());
   const [opportunities, setOpportunities] = useState([]);
   const [history,       setHistory]       = useState([]);
   const [bankroll,      setBankroll]      = useState(null);
@@ -29,11 +38,14 @@ export default function App() {
   const [parlayCount,   setParlayCount]   = useState(0);
   const { theme, toggle: toggleTheme } = useTheme();
 
-  const addToast = (message, type = 'info') =>
+  const authed = isAuthenticated();
+
+  const addToast    = (message, type = 'info') =>
     setToasts(t => [...t, { id: Date.now(), message, type }]);
   const dismissToast = (id) => setToasts(t => t.filter(x => x.id !== id));
 
   const fetchAll = useCallback(async () => {
+    if (!isAuthenticated()) return;
     try {
       const [opps, hist, br, st, parls] = await Promise.all([
         getOpportunities(), getHistory(), getBankroll(), getStats(), getParlays()
@@ -60,6 +72,12 @@ export default function App() {
     return () => clearInterval(id);
   }, [fetchAll]);
 
+  const handleFetchNewOdds = useCallback(async () => {
+    setRefreshing(true);
+    try { await refreshOdds(); await fetchAll(); }
+    finally { setRefreshing(false); }
+  }, [fetchAll]);
+
   // Keyboard shortcut: R = fetch new odds
   useEffect(() => {
     const handler = (e) => {
@@ -69,27 +87,38 @@ export default function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []);
+  }, [handleFetchNewOdds]);
 
-  const handleFetchNewOdds = async () => {
-    setRefreshing(true);
-    try { await refreshOdds(); await fetchAll(); }
-    finally { setRefreshing(false); }
-  };
+  // ── SignalR real-time updates ─────────────────────────────────────────────
+  useSignalR({
+    OddsRefreshed: (payload) => {
+      fetchAll();
+      addToast(`Odds refreshed${payload?.message ? ` — ${payload.message}` : ''}`, 'info');
+    },
+    BankrollUpdated: (updated) => {
+      if (updated) setBankroll(updated);
+    },
+  }, { enabled: authed });
 
-  const pendingCount  = history.filter(b => b.result === 'Pending').length;
-  const goodBetCount  = opportunities.filter(o => o.aiValidation?.decision === 'GOOD_BET').length;
-  const riskyCount    = opportunities.filter(o => o.aiValidation?.decision === 'RISKY').length;
+  const handleLogin  = () => { setUser(getUser()); fetchAll(); };
+  const handleLogout = () => { logout(); setUser(null); };
+
+  // ── Auth gate ─────────────────────────────────────────────────────────────
+  if (!authed) return <LoginPage onLogin={handleLogin} />;
+
+  const pendingCount = history.filter(b => b.result === 'Pending').length;
+  const goodBetCount = opportunities.filter(o => o.aiValidation?.decision === 'GOOD_BET').length;
+  const riskyCount   = opportunities.filter(o => o.aiValidation?.decision === 'RISKY').length;
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100">
       {/* ── Header ──────────────────────────────────────────────────── */}
       <header className="bg-gray-800 border-b border-gray-700 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
+        <div className="max-w-screen-2xl mx-auto flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-white">📊 Betting Analysis</h1>
             <p className="text-gray-400 text-xs mt-0.5">
-              Pre-match · up to 2 weeks ahead · Half-Kelly · AI Validated
+              Analysis &amp; bet tracker · Half-Kelly sizing · AI validated signals
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -132,17 +161,25 @@ export default function App() {
             </button>
             <button onClick={handleFetchNewOdds} disabled={refreshing}
               className="px-3 py-1.5 text-xs rounded-lg bg-blue-700 hover:bg-blue-600 disabled:opacity-50 transition-colors">
-              {refreshing ? '…' : '⟳ New Odds'}
+              {refreshing ? '…' : '⟳ Refresh Odds'}
             </button>
-            <button onClick={fetchAll}
-              className="px-3 py-1.5 text-xs rounded-lg bg-gray-700 hover:bg-gray-600 transition-colors">
-              ↺ Refresh
-            </button>
+            {user && (
+              <div className="flex items-center gap-2 pl-2 border-l border-gray-700">
+                <span className="text-gray-400 text-xs hidden md:block">
+                  {user.username}
+                  {user.role === 'Admin' && <span className="ml-1 text-yellow-400">★</span>}
+                </span>
+                <button onClick={handleLogout}
+                  className="px-3 py-1.5 text-xs rounded-lg bg-gray-700 hover:bg-red-700 transition-colors text-gray-300 hover:text-white">
+                  Sign out
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+      <main className="max-w-screen-2xl mx-auto px-6 py-6 space-y-6">
         {error && (
           <div className="bg-red-900 border border-red-600 text-red-200 rounded-xl px-5 py-4 text-sm">
             <strong>Connection Error</strong><br />{error}
@@ -209,7 +246,7 @@ export default function App() {
             <div className="flex flex-wrap gap-4 text-xs text-gray-500">
               <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-800 inline-block" /> GOOD BET (score ≥ 6, no major flags)</span>
               <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-gray-700 inline-block" /> RISKY (1–2 flags)</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-900 inline-block" /> SKIP (blocked — button disabled)</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-900 inline-block" /> SKIP (not worth recording — button disabled)</span>
             </div>
 
             {loading ? <Skeleton /> : (

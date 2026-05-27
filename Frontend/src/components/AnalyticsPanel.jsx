@@ -1,20 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { getSportStats } from '../services/api.js';
+import { getSportStats, getBankrollHistory } from '../services/api.js';
 
 const SPORT_EMOJI = { EPL: '⚽', AFL: '🏈', NRL: '🏉', NBA: '🏀', Esports: '🎮' };
 const fmt = (n) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(n ?? 0);
 
 export default function AnalyticsPanel({ history }) {
-  const [sportStats, setSportStats] = useState([]);
-  const [loading,    setLoading]    = useState(true);
-  const [error,      setError]      = useState(null);
+  const [sportStats,       setSportStats]       = useState([]);
+  const [bankrollHistory,  setBankrollHistory]  = useState([]);
+  const [historyDays,      setHistoryDays]      = useState(90);
+  const [loading,          setLoading]          = useState(true);
+  const [error,            setError]            = useState(null);
 
   useEffect(() => {
-    getSportStats()
-      .then(setSportStats)
+    Promise.all([getSportStats(), getBankrollHistory(historyDays)])
+      .then(([sports, bkHistory]) => { setSportStats(sports); setBankrollHistory(bkHistory); })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [historyDays]);
 
   const settled     = (history ?? []).filter(b => b.result !== 'Pending');
   const pnlTimeline = buildPnlTimeline(settled);
@@ -54,6 +56,27 @@ export default function AnalyticsPanel({ history }) {
           <RoiCard label="30-day ROI" value={roi30d} />
         </div>
       )}
+
+      {/* ── Bankroll balance history ──────────────────────── */}
+      <Section
+        title="Bankroll Balance History"
+        action={
+          <select
+            value={historyDays}
+            onChange={e => setHistoryDays(Number(e.target.value))}
+            className="bg-gray-700 border border-gray-600 text-gray-300 text-xs rounded px-2 py-1"
+          >
+            <option value={30}>30 days</option>
+            <option value={90}>90 days</option>
+            <option value={180}>180 days</option>
+            <option value={365}>1 year</option>
+          </select>
+        }
+      >
+        {bankrollHistory.length === 0
+          ? <p className="text-gray-500 text-sm text-center py-6">No bankroll history yet.</p>
+          : <BankrollChart data={bankrollHistory} />}
+      </Section>
 
       {/* ── Cumulative PnL timeline ────────────────────────── */}
       <Section title="Cumulative P&L (last 30 days)">
@@ -127,11 +150,55 @@ export default function AnalyticsPanel({ history }) {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function Section({ title, children }) {
+function Section({ title, action, children }) {
   return (
     <div className="bg-gray-800 border border-gray-700 rounded-xl p-5 space-y-4">
-      <h3 className="text-white font-semibold text-sm border-b border-gray-700 pb-2">{title}</h3>
+      <div className="flex items-center justify-between border-b border-gray-700 pb-2">
+        <h3 className="text-white font-semibold text-sm">{title}</h3>
+        {action}
+      </div>
       {children}
+    </div>
+  );
+}
+
+function BankrollChart({ data }) {
+  const w = 600, h = 100, pad = 8;
+  const vals   = data.map(d => Number(d.bankroll));
+  const min    = Math.min(...vals) * 0.98;
+  const max    = Math.max(...vals) * 1.02;
+  const range  = max - min || 1;
+  const first  = vals[0];
+  const last   = vals[vals.length - 1];
+  const up     = last >= first;
+
+  const toX = (i) => pad + (i / Math.max(vals.length - 1, 1)) * (w - pad * 2);
+  const toY = (v) => h - pad - ((v - min) / range) * (h - pad * 2);
+
+  const points    = vals.map((v, i) => `${toX(i)},${toY(v)}`).join(' ');
+  const fillPath  = `M${toX(0)},${h} ` + vals.map((v, i) => `L${toX(i)},${toY(v)}`).join(' ') + ` L${toX(vals.length - 1)},${h} Z`;
+  const color     = up ? '#22c55e' : '#ef4444';
+  const fillColor = up ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)';
+  const fmt       = (n) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD', maximumFractionDigits: 0 }).format(n);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex justify-between text-xs text-gray-400 mb-1">
+        <span>Start: <span className="text-white font-medium">{fmt(first)}</span></span>
+        <span className={`font-bold ${up ? 'text-green-400' : 'text-red-400'}`}>
+          {up ? '▲' : '▼'} {fmt(Math.abs(last - first))} ({((last - first) / first * 100).toFixed(1)}%)
+        </span>
+        <span>Now: <span className="text-white font-medium">{fmt(last)}</span></span>
+      </div>
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-24" preserveAspectRatio="none">
+        <path d={fillPath} fill={fillColor} />
+        <polyline points={points} fill="none" stroke={color} strokeWidth="2" />
+        <circle cx={toX(vals.length - 1)} cy={toY(last)} r="3" fill={color} />
+      </svg>
+      <div className="flex justify-between text-xs text-gray-500">
+        <span>{data[0]?.date}</span>
+        <span>{data[data.length - 1]?.date}</span>
+      </div>
     </div>
   );
 }
