@@ -48,6 +48,16 @@ static async Task RunApp(string[] args)
 {
     var builder = WebApplication.CreateBuilder(args);
 
+    // Fail fast if required secrets are missing — prevents silent auth failures.
+    // In dev: dotnet user-secrets set "Jwt:Key" "..." and "BettingSettings:OddsApiKey" "..."
+    // In prod: set via environment variables JWT__KEY and BETTINGSETTINGS__ODDSAPIKEY
+    var jwtKey    = builder.Configuration["Jwt:Key"];
+    var oddsApiKey = builder.Configuration["BettingSettings:OddsApiKey"];
+    if (string.IsNullOrWhiteSpace(jwtKey))
+        throw new InvalidOperationException("Jwt:Key is not set. Use 'dotnet user-secrets' in dev or an environment variable in production.");
+    if (string.IsNullOrWhiteSpace(oddsApiKey))
+        Log.Warning("BettingSettings:OddsApiKey is not set — real odds will not be fetched.");
+
     // ── Serilog host integration ──────────────────────────────────────────────
     builder.Host.UseSerilog();
 
