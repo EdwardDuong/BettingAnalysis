@@ -4,5 +4,5 @@ namespace BettingAnalysis.Interfaces;
 
 public interface IParlayService
 {
-    List<ParlayCombo> BuildCombos(List<BetOpportunity> opportunities);
+    Task<List<ParlayCombo>> BuildCombosAsync(List<BetOpportunity> opportunities);
 }
