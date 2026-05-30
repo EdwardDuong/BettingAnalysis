@@ -69,20 +69,20 @@ public class BettingController : ControllerBase
     /// Returns all pre-match value bet opportunities, enriched with AI validation.
     ///
     /// Pipeline:
-    ///   1.  OddsService    → matches within betting window (Rules #1, #4)
-    ///   2.  PoissonService → outcome probabilities
-    ///   3.  EdgeService    → model edge vs implied probability (Rule #2)
-    ///   4.  LineMovement   → Steaming / Drifting / Stable
-    ///   5.  BetSizingService → half-Kelly stake (Rule #3)
+    ///   1.  OddsService       → matches within betting window (Rules #1, #4)
+    ///   2.  PoissonService    → outcome probabilities
+    ///   3.  EdgeService       → model edge vs implied probability (Rule #2)
+    ///   4.  LineMovement      → Steaming / Drifting / Stable
+    ///   5.  BetSizingService  → half-Kelly stake (Rule #3)
     ///   6.  AIValidatorService → Score, Decision, Flags for all opportunities
     ///   7.  Sort by AI score descending (GOOD_BET first, then RISKY)
     ///
     /// Returns empty list if stop-loss triggered (Rule #5).
     /// </summary>
     [HttpGet("opportunities")]
-    public ActionResult<List<BetOpportunity>> GetOpportunities()
+    public async Task<ActionResult<List<BetOpportunity>>> GetOpportunities()
     {
-        var bankroll = EnrichedBankroll();
+        var bankroll = await EnrichedBankrollAsync();
         if (bankroll.IsStopLossTriggered)
             return Ok(new List<BetOpportunity>());
 
@@ -105,14 +105,13 @@ public class BettingController : ControllerBase
 
             foreach (var (outcome, team, odds, prevOdds, prob) in candidates)
             {
-                var edgeVal = _edge.CalculateEdge(prob, odds);
-                var movement      = _lineMovement.GetMovement(odds, prevOdds);
-                var hoursUntil    = (match.MatchStartTime - now).TotalHours;
-                var stake         = _sizing.CalculateStake(prob, odds, bankroll.AvailableBankroll);
-                stake             = Math.Min(stake, bankroll.MaxStakePerBet);
+                var edgeVal    = _edge.CalculateEdge(prob, odds);
+                var movement   = _lineMovement.GetMovement(odds, prevOdds);
+                var hoursUntil = (match.MatchStartTime - now).TotalHours;
+                var stake      = _sizing.CalculateStake(prob, odds, bankroll.AvailableBankroll);
+                stake          = Math.Min(stake, bankroll.MaxStakePerBet);
 
-                // Pre-flight validation to collect soft warnings
-                var preCheck = _validation.Validate(match, team, odds, edgeVal, stake, movement);
+                var preCheck = await _validation.ValidateAsync(match, team, odds, edgeVal, stake, movement);
 
                 opportunities.Add(new BetOpportunity
                 {
@@ -151,7 +150,6 @@ public class BettingController : ControllerBase
             };
         }
 
-        // Sort: GOOD_BET first, then by AI score desc, then by edge desc
         var sorted = opportunities
             .OrderBy(o => o.AiValidation?.Decision == "GOOD_BET" ? 0 : o.AiValidation?.Decision == "RISKY" ? 1 : 2)
             .ThenByDescending(o => o.AiValidation?.Score ?? 0)
@@ -167,7 +165,7 @@ public class BettingController : ControllerBase
 
     [HttpPost("place")]
     [Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("place-bet")]
-    public ActionResult<object> PlaceBet([FromBody] PlaceBetRequest request)
+    public async Task<ActionResult<object>> PlaceBet([FromBody] PlaceBetRequest request)
     {
         var preMatch = _odds.GetPreMatchOdds();
         var match    = preMatch.FirstOrDefault(m => m.MatchId == request.MatchId);
@@ -195,22 +193,20 @@ public class BettingController : ControllerBase
             request.Outcome == "Home" ? match.PreviousHomeOdds :
             request.Outcome == "Away" ? match.PreviousAwayOdds : match.PreviousDrawOdds);
 
-        var bankroll = EnrichedBankroll();
+        var bankroll = await EnrichedBankrollAsync();
         var stake    = Math.Min(
             request.CustomStake ?? _sizing.CalculateStake(prob, odds, bankroll.AvailableBankroll),
             bankroll.MaxStakePerBet);
 
-        // ── Full validation gate ──────────────────────────────────────────────
-        var vResult = _validation.Validate(match, team, odds, edgeVal, stake, movement);
+        var vResult = await _validation.ValidateAsync(match, team, odds, edgeVal, stake, movement);
 
         if (!vResult.IsValid)
         {
-            // Log the rejection for analysis
             _log.LogRejected(match.MatchId, team, request.Outcome, vResult.Violations);
             return BadRequest(new { Violations = vResult.Violations, Warnings = vResult.Warnings });
         }
 
-        _bankroll.ReserveStake(stake);
+        await _bankroll.ReserveStakeAsync(stake);
 
         var bet = new BetHistory
         {
@@ -229,7 +225,7 @@ public class BettingController : ControllerBase
             LineMovementStatus = movement.ToString(),
         };
 
-        _log.LogBet(bet);
+        await _log.LogBetAsync(bet);
 
         return Ok(new
         {
@@ -246,14 +242,16 @@ public class BettingController : ControllerBase
     // ─────────────────────────────────────────────────────────────────────────
 
     [HttpGet("history")]
-    public ActionResult<List<BetHistory>> GetHistory() => Ok(_log.GetHistory());
+    public async Task<ActionResult<List<BetHistory>>> GetHistory()
+        => Ok(await _log.GetHistoryAsync());
 
     // ─────────────────────────────────────────────────────────────────────────
     // GET /Betting/bankroll
     // ─────────────────────────────────────────────────────────────────────────
 
     [HttpGet("bankroll")]
-    public ActionResult<Bankroll> GetBankroll() => Ok(EnrichedBankroll());
+    public async Task<ActionResult<Bankroll>> GetBankroll()
+        => Ok(await EnrichedBankrollAsync());
 
     // ─────────────────────────────────────────────────────────────────────────
     // POST /Betting/result/{id}
@@ -267,7 +265,7 @@ public class BettingController : ControllerBase
     [HttpPost("result/{id}")]
     public async Task<ActionResult> UpdateResult(Guid id, [FromBody] UpdateResultRequest request)
     {
-        var bet = _log.GetById(id);
+        var bet = await _log.GetByIdAsync(id);
         if (bet is null)             return NotFound($"Bet {id} not found.");
         if (bet.Result != "Pending") return BadRequest("Result already recorded.");
 
@@ -277,11 +275,10 @@ public class BettingController : ControllerBase
         if (request.ClosingOdds.HasValue && request.ClosingOdds.Value > 0)
             clvValue = Math.Round(_clv.CalculateCLV(bet.Odds, request.ClosingOdds.Value), 2);
 
-        _log.UpdateResult(id, request.Result, pnl, request.ClosingOdds, clvValue);
-        _bankroll.UpdateAfterResult(bet.Stake, bet.Odds, request.Result);
+        await _log.UpdateResultAsync(id, request.Result, pnl, request.ClosingOdds, clvValue);
+        await _bankroll.UpdateAfterResultAsync(bet.Stake, bet.Odds, request.Result);
 
-        // Push updated bankroll to all connected clients via SignalR
-        await _hub.Clients.All.SendAsync("BankrollUpdated", EnrichedBankroll());
+        await _hub.Clients.All.SendAsync("BankrollUpdated", await EnrichedBankrollAsync());
 
         return Ok(new
         {
@@ -298,12 +295,12 @@ public class BettingController : ControllerBase
     // ─────────────────────────────────────────────────────────────────────────
 
     [HttpGet("stats")]
-    public ActionResult GetStats()
+    public async Task<ActionResult> GetStats()
     {
-        var (total, wins, losses, totalPnL, avgCLV) = _log.GetStats();
-        var streak      = _log.GetCurrentStreak();
-        var totalStaked = _log.GetTotalStaked();
-        var avgEdge     = _log.GetAverageEdge();
+        var (total, wins, losses, totalPnL, avgCLV) = await _log.GetStatsAsync();
+        var streak      = await _log.GetCurrentStreakAsync();
+        var totalStaked = await _log.GetTotalStakedAsync();
+        var avgEdge     = await _log.GetAverageEdgeAsync();
         var roi         = totalStaked > 0
             ? Math.Round((double)(totalPnL / totalStaked) * 100, 1) : 0.0;
 
@@ -349,7 +346,6 @@ public class BettingController : ControllerBase
     [HttpPut("settings")]
     public ActionResult UpdateSettings([FromBody] BettingConfig updated)
     {
-        // Safety guards: prevent obviously broken config
         if (updated.EdgeThreshold < 0.01 || updated.EdgeThreshold > 0.50)
             return BadRequest("EdgeThreshold must be between 1% and 50%.");
         if (updated.MaxStakePercent < 0.005 || updated.MaxStakePercent > 0.10)
@@ -422,10 +418,10 @@ public class BettingController : ControllerBase
     /// </summary>
     [Authorize(Roles = "Admin")]
     [HttpPost("bankroll/reset")]
-    public ActionResult ResetBankroll([FromBody] decimal? newAmount = null)
+    public async Task<ActionResult> ResetBankroll([FromBody] decimal? newAmount = null)
     {
-        _bankroll.Reset(newAmount);
-        return Ok(new { Message = "Bankroll reset.", Bankroll = EnrichedBankroll() });
+        await _bankroll.ResetAsync(newAmount);
+        return Ok(new { Message = "Bankroll reset.", Bankroll = await EnrichedBankrollAsync() });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -437,7 +433,7 @@ public class BettingController : ControllerBase
     public async Task<ActionResult> GetBankrollHistory([FromQuery] int days = 90)
     {
         days = Math.Clamp(days, 7, 365);
-        var from = DateTime.UtcNow.AddDays(-days);
+        var from      = DateTime.UtcNow.AddDays(-days);
         var snapshots = await _snapshots.GetByDateRangeAsync(1, from, DateTime.UtcNow);
 
         var daily = snapshots
@@ -446,13 +442,13 @@ public class BettingController : ControllerBase
             .OrderBy(s => s.SnapshotDate)
             .Select(s => new
             {
-                Date           = s.SnapshotDate.ToString("yyyy-MM-dd"),
-                Bankroll       = s.TotalBankroll,
-                TotalPnL       = s.TotalPnL,
-                ROI            = Math.Round(s.ROI * 100, 2),
-                WinRate        = Math.Round(s.WinRate * 100, 1),
-                TotalBets      = s.TotalBetsPlaced,
-                ConsecLosses   = s.ConsecutiveLosses,
+                Date         = s.SnapshotDate.ToString("yyyy-MM-dd"),
+                Bankroll     = s.TotalBankroll,
+                TotalPnL     = s.TotalPnL,
+                ROI          = Math.Round(s.ROI * 100, 2),
+                WinRate      = Math.Round(s.WinRate * 100, 1),
+                TotalBets    = s.TotalBetsPlaced,
+                ConsecLosses = s.ConsecutiveLosses,
             })
             .ToList();
 
@@ -465,21 +461,20 @@ public class BettingController : ControllerBase
 
     /// <summary>
     /// Returns multi-leg parlay combos built from the current GOOD_BET opportunities.
-    /// One combo per leg count (2-leg, 3-leg, 4-leg), using the highest-scored selections.
+    /// One combo per leg count (3-leg, 4-leg, 5-leg), using the highest-scored selections.
     /// Same-match legs are excluded to avoid correlation.
     /// </summary>
     [HttpGet("parlays")]
-    public ActionResult<List<ParlayCombo>> GetParlays()
+    public async Task<ActionResult<List<ParlayCombo>>> GetParlays()
     {
-        var bankroll = EnrichedBankroll();
+        var bankroll = await EnrichedBankrollAsync();
         if (bankroll.IsStopLossTriggered)
             return Ok(new List<ParlayCombo>());
 
-        // Reuse the same opportunity pipeline from GetOpportunities
-        var config   = _cfg.Get();
-        var preMatch = _odds.GetPreMatchOdds();
+        var config       = _cfg.Get();
+        var preMatch     = _odds.GetPreMatchOdds();
         var opportunities = new List<BetOpportunity>();
-        var now      = DateTime.UtcNow;
+        var now          = DateTime.UtcNow;
 
         foreach (var match in preMatch)
         {
@@ -495,7 +490,7 @@ public class BettingController : ControllerBase
             foreach (var (outcome, team, odds, prevOdds, prob) in candidates)
             {
                 var edgeVal = _edge.CalculateEdge(prob, odds);
-                if (edgeVal < config.ParlayMinEdge) continue;  // wider pool than single-bet threshold
+                if (edgeVal < config.ParlayMinEdge) continue;
 
                 var movement   = _lineMovement.GetMovement(odds, prevOdds);
                 var hoursUntil = (match.MatchStartTime - now).TotalHours;
@@ -503,21 +498,21 @@ public class BettingController : ControllerBase
 
                 opportunities.Add(new BetOpportunity
                 {
-                    MatchId           = match.MatchId,
-                    HomeTeam          = match.HomeTeam,
-                    AwayTeam          = match.AwayTeam,
-                    Team              = team,
-                    Outcome           = outcome,
-                    Odds              = odds,
-                    Probability       = Math.Round(prob, 4),
-                    Edge              = Math.Round(edgeVal, 4),
-                    SuggestedStake    = stake,
-                    SportType         = match.SportType,
-                    MatchStartTime    = match.MatchStartTime,
-                    HoursUntilKickoff = Math.Round(hoursUntil, 2),
-                    PreviousOdds      = prevOdds,
+                    MatchId            = match.MatchId,
+                    HomeTeam           = match.HomeTeam,
+                    AwayTeam           = match.AwayTeam,
+                    Team               = team,
+                    Outcome            = outcome,
+                    Odds               = odds,
+                    Probability        = Math.Round(prob, 4),
+                    Edge               = Math.Round(edgeVal, 4),
+                    SuggestedStake     = stake,
+                    SportType          = match.SportType,
+                    MatchStartTime     = match.MatchStartTime,
+                    HoursUntilKickoff  = Math.Round(hoursUntil, 2),
+                    PreviousOdds       = prevOdds,
                     LineMovementStatus = movement.ToString(),
-                    ConfidenceLevel   = ComputeConfidence(prob, edgeVal),
+                    ConfidenceLevel    = ComputeConfidence(prob, edgeVal),
                 });
             }
         }
@@ -534,7 +529,7 @@ public class BettingController : ControllerBase
             };
         }
 
-        return Ok(_parlay.BuildCombos(opportunities));
+        return Ok(await _parlay.BuildCombosAsync(opportunities));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -543,7 +538,8 @@ public class BettingController : ControllerBase
 
     /// <summary>Returns win/loss/PnL breakdown per sport for the analytics view.</summary>
     [HttpGet("stats/sport")]
-    public ActionResult GetStatsBySport() => Ok(_log.GetStatsBySport());
+    public async Task<ActionResult> GetStatsBySport()
+        => Ok(await _log.GetStatsBySportAsync());
 
     // ─────────────────────────────────────────────────────────────────────────
     // GET /Betting/export/csv
@@ -551,9 +547,9 @@ public class BettingController : ControllerBase
 
     /// <summary>Downloads the full bet history as a CSV file.</summary>
     [HttpGet("export/csv")]
-    public IActionResult ExportCsv()
+    public async Task<IActionResult> ExportCsv()
     {
-        var history = _log.GetHistory();
+        var history = await _log.GetHistoryAsync();
         var lines   = new List<string>
         {
             "Id,HomeTeam,AwayTeam,Team,Outcome,SportType,Odds,ClosingOdds,CLV,Edge,Stake,PnL,Result,LineMovement,DatePlaced"
@@ -572,7 +568,7 @@ public class BettingController : ControllerBase
                 b.DateTimePlaced.ToString("o")));
         }
 
-        var csv  = string.Join("\n", lines);
+        var csv   = string.Join("\n", lines);
         var bytes = System.Text.Encoding.UTF8.GetBytes(csv);
         return File(bytes, "text/csv", $"bet-history-{DateTime.UtcNow:yyyyMMdd}.csv");
     }
@@ -588,13 +584,12 @@ public class BettingController : ControllerBase
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// <summary>Merge core bankroll with live exposure and tilt data from logging service.</summary>
-    private Bankroll EnrichedBankroll()
+    private async Task<Bankroll> EnrichedBankrollAsync()
     {
-        var b = _bankroll.GetBankroll();
+        var b      = await _bankroll.GetBankrollAsync();
         var config = _cfg.Get();
-        b.TotalExposure        = _log.GetTotalExposure();
-        b.ConsecutiveLosses    = _log.GetConsecutiveLosses();
+        b.TotalExposure        = await _log.GetTotalExposureAsync();
+        b.ConsecutiveLosses    = await _log.GetConsecutiveLossesAsync();
         b.MaxConsecutiveLosses = config.MaxConsecutiveLosses;
         return b;
     }

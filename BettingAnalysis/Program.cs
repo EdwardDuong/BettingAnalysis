@@ -277,21 +277,21 @@ public class BankrollHealthCheck : IHealthCheck
         _bankrollService = bankrollService;
     }
 
-    public Task<HealthCheckResult> CheckHealthAsync(
+    public async Task<HealthCheckResult> CheckHealthAsync(
         HealthCheckContext context,
         CancellationToken cancellationToken = default)
     {
-        var b       = _bankrollService.GetBankroll();
-        var initial = b.TotalBankroll + b.CumulativeLoss;  // reconstruct initial approximation
+        var b       = await _bankrollService.GetBankrollAsync();
+        var initial = b.TotalBankroll + b.CumulativeLoss;
         if (initial <= 0) initial = b.TotalBankroll;
 
         var healthPct = initial > 0 ? (double)(b.TotalBankroll / initial) * 100 : 100;
 
         return healthPct switch
         {
-            < 50  => Task.FromResult(HealthCheckResult.Unhealthy($"Bankroll critically low: {healthPct:F1}% of starting amount")),
-            < 80  => Task.FromResult(HealthCheckResult.Degraded($"Bankroll below optimal: {healthPct:F1}% remaining")),
-            _     => Task.FromResult(HealthCheckResult.Healthy($"Bankroll healthy: {healthPct:F1}% remaining"))
+            < 50 => HealthCheckResult.Unhealthy($"Bankroll critically low: {healthPct:F1}% of starting amount"),
+            < 80 => HealthCheckResult.Degraded($"Bankroll below optimal: {healthPct:F1}% remaining"),
+            _    => HealthCheckResult.Healthy($"Bankroll healthy: {healthPct:F1}% remaining")
         };
     }
 }
