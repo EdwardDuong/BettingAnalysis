@@ -1,7 +1,6 @@
 using BettingAnalysis.Data;
 using BettingAnalysis.Data.Repositories;
 using BettingAnalysis.Interfaces;
-using BettingAnalysis.Models;
 using BettingAnalysis.Services;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
@@ -55,9 +54,9 @@ public class BankrollServiceTests : IDisposable
     public void Dispose() => _serviceProvider.Dispose();
 
     [Fact]
-    public void GetBankroll_InitialState_ReturnsSeedAmount()
+    public async Task GetBankroll_InitialState_ReturnsSeedAmount()
     {
-        var b = _service.GetBankroll();
+        var b = await _service.GetBankrollAsync();
 
         b.TotalBankroll.Should().Be(10_000m);
         b.AvailableBankroll.Should().Be(10_000m);
@@ -66,76 +65,74 @@ public class BankrollServiceTests : IDisposable
     }
 
     [Fact]
-    public void ReserveStake_ReducesAvailableBankroll()
+    public async Task ReserveStake_ReducesAvailableBankroll()
     {
-        _service.ReserveStake(200m);
+        await _service.ReserveStakeAsync(200m);
 
-        var b = _service.GetBankroll();
+        var b = await _service.GetBankrollAsync();
         b.AvailableBankroll.Should().Be(9_800m);
-        b.TotalBankroll.Should().Be(10_000m);  // total unchanged until result
+        b.TotalBankroll.Should().Be(10_000m);
     }
 
     [Fact]
-    public void UpdateAfterResult_Win_IncreasesTotalBankroll()
+    public async Task UpdateAfterResult_Win_IncreasesTotalBankroll()
     {
-        _service.ReserveStake(100m);
-        _service.UpdateAfterResult(100m, 2.50m, "Win");
+        await _service.ReserveStakeAsync(100m);
+        await _service.UpdateAfterResultAsync(100m, 2.50m, "Win");
 
-        var b = _service.GetBankroll();
+        var b = await _service.GetBankrollAsync();
         // profit = 100 * (2.5 - 1) = 150; total = 10000 + 150 = 10150
         b.TotalBankroll.Should().Be(10_150m);
         b.AvailableBankroll.Should().Be(10_150m);
     }
 
     [Fact]
-    public void UpdateAfterResult_Loss_ReducesTotalAndTracksDailyLoss()
+    public async Task UpdateAfterResult_Loss_ReducesTotalAndTracksDailyLoss()
     {
-        _service.ReserveStake(100m);
-        _service.UpdateAfterResult(100m, 2.50m, "Loss");
+        await _service.ReserveStakeAsync(100m);
+        await _service.UpdateAfterResultAsync(100m, 2.50m, "Loss");
 
-        var b = _service.GetBankroll();
+        var b = await _service.GetBankrollAsync();
         b.TotalBankroll.Should().Be(9_900m);
         b.DailyLossUsed.Should().Be(100m);
         b.CumulativeLoss.Should().Be(100m);
     }
 
     [Fact]
-    public void IsDailyLimitReached_WhenDailyLossExceeds10Pct()
+    public async Task IsDailyLimitReached_WhenDailyLossExceeds10Pct()
     {
-        // 10% of 10000 = 1000; losing 1050 should trigger
-        for (int i = 0; i < 11; i++)   // 11 × $100 = $1100
+        for (int i = 0; i < 11; i++)
         {
-            _service.ReserveStake(100m);
-            _service.UpdateAfterResult(100m, 2.0m, "Loss");
+            await _service.ReserveStakeAsync(100m);
+            await _service.UpdateAfterResultAsync(100m, 2.0m, "Loss");
         }
 
-        var b = _service.GetBankroll();
+        var b = await _service.GetBankrollAsync();
         b.IsDailyLimitReached.Should().BeTrue();
     }
 
     [Fact]
-    public void IsStopLossTriggered_WhenCumulativeLossExceeds20Pct()
+    public async Task IsStopLossTriggered_WhenCumulativeLossExceeds20Pct()
     {
-        // 20% of 10000 = 2000; losing 2100 should trigger
-        for (int i = 0; i < 22; i++)   // 22 × $100 = $2200
+        for (int i = 0; i < 22; i++)
         {
-            _service.ReserveStake(100m);
-            _service.UpdateAfterResult(100m, 2.0m, "Loss");
+            await _service.ReserveStakeAsync(100m);
+            await _service.UpdateAfterResultAsync(100m, 2.0m, "Loss");
         }
 
-        var b = _service.GetBankroll();
+        var b = await _service.GetBankrollAsync();
         b.IsStopLossTriggered.Should().BeTrue();
     }
 
     [Fact]
-    public void Reset_WithNewAmount_RestoresAllCounters()
+    public async Task Reset_WithNewAmount_RestoresAllCounters()
     {
-        _service.ReserveStake(100m);
-        _service.UpdateAfterResult(100m, 2.0m, "Loss");
+        await _service.ReserveStakeAsync(100m);
+        await _service.UpdateAfterResultAsync(100m, 2.0m, "Loss");
 
-        _service.Reset(5_000m);
+        await _service.ResetAsync(5_000m);
 
-        var b = _service.GetBankroll();
+        var b = await _service.GetBankrollAsync();
         b.TotalBankroll.Should().Be(5_000m);
         b.AvailableBankroll.Should().Be(5_000m);
         b.DailyLossUsed.Should().Be(0m);
@@ -143,21 +140,21 @@ public class BankrollServiceTests : IDisposable
     }
 
     [Fact]
-    public void Reset_WithoutAmount_UsesInitialBankroll()
+    public async Task Reset_WithoutAmount_UsesInitialBankroll()
     {
-        _service.ReserveStake(300m);
-        _service.UpdateAfterResult(300m, 2.0m, "Loss");
+        await _service.ReserveStakeAsync(300m);
+        await _service.UpdateAfterResultAsync(300m, 2.0m, "Loss");
 
-        _service.Reset();
+        await _service.ResetAsync();
 
-        var b = _service.GetBankroll();
+        var b = await _service.GetBankrollAsync();
         b.TotalBankroll.Should().Be(10_000m);
     }
 
     [Fact]
-    public void MaxStakePerBet_IsThreePercentOfTotalBankroll()
+    public async Task MaxStakePerBet_IsThreePercentOfTotalBankroll()
     {
-        var b = _service.GetBankroll();
-        b.MaxStakePerBet.Should().Be(300m);  // 3% × 10000
+        var b = await _service.GetBankrollAsync();
+        b.MaxStakePerBet.Should().Be(300m);
     }
 }
