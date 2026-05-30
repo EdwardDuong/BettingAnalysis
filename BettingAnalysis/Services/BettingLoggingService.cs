@@ -4,69 +4,56 @@ using BettingAnalysis.Models;
 
 namespace BettingAnalysis.Services;
 
-/// <summary>
-/// Audit log for all bet activity — placed, pending, settled, and rejected.
-/// Now persisted to SQL Server database for production-grade reliability.
-/// Uses repository pattern for data access with async operations.
-/// </summary>
 public class BettingLoggingService : IBettingLoggingService
 {
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly List<RejectedBet>    _rejected = new(); // In-memory for now
+    private readonly List<RejectedBet>    _rejected = new();
     private readonly object               _lock     = new();
-    private const int DefaultUserId = 1; // Individual use — default user
+    private const int DefaultUserId = 1;
 
     public BettingLoggingService(IServiceScopeFactory scopeFactory)
-    {
-        _scopeFactory = scopeFactory;
-    }
+        => _scopeFactory = scopeFactory;
 
     // ── Placed bets ───────────────────────────────────────────────────────────
 
-    public void LogBet(BetHistory bet)
+    public async Task LogBetAsync(BetHistory bet)
     {
-        using var scope = _scopeFactory.CreateScope();
+        await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-
-        var entity = MapToEntity(bet);
-        repo.AddAsync(entity).GetAwaiter().GetResult();
+        await repo.AddAsync(MapToEntity(bet));
     }
 
-    public List<BetHistory> GetHistory()
+    public async Task<List<BetHistory>> GetHistoryAsync()
     {
-        using var scope = _scopeFactory.CreateScope();
+        await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-
-        var bets = repo.GetAllAsync(DefaultUserId).GetAwaiter().GetResult();
+        var bets = await repo.GetAllAsync(DefaultUserId);
         return bets.Select(MapToDomain).ToList();
     }
 
-    public BetHistory? GetById(Guid id)
+    public async Task<BetHistory?> GetByIdAsync(Guid id)
     {
-        using var scope = _scopeFactory.CreateScope();
+        await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-
-        var bet = repo.GetByIdAsync(id).GetAwaiter().GetResult();
-        return bet != null ? MapToDomain(bet) : null;
+        var bet = await repo.GetByIdAsync(id);
+        return bet is null ? null : MapToDomain(bet);
     }
 
-    public void UpdateResult(Guid id, string result, decimal pnl, decimal? closingOdds, double? clv)
+    public async Task UpdateResultAsync(Guid id, string result, decimal pnl, decimal? closingOdds, double? clv)
     {
-        using var scope = _scopeFactory.CreateScope();
+        await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-
-        var bet = repo.GetByIdAsync(id).GetAwaiter().GetResult();
+        var bet  = await repo.GetByIdAsync(id);
         if (bet is null) return;
 
-        bet.Result = result;
-        bet.PnL = pnl;
+        bet.Result      = result;
+        bet.PnL         = pnl;
         bet.ClosingOdds = closingOdds;
-        bet.CLV = clv;
-
-        repo.UpdateAsync(bet).GetAwaiter().GetResult();
+        bet.CLV         = clv;
+        await repo.UpdateAsync(bet);
     }
 
-    // ── Rejected bets (logged for analysis) ───────────────────────────────────
+    // ── Rejected bets ─────────────────────────────────────────────────────────
 
     public void LogRejected(string matchId, string team, string outcome, List<string> reasons)
     {
@@ -90,41 +77,70 @@ public class BettingLoggingService : IBettingLoggingService
 
     // ── Computed stats used by ValidationService ───────────────────────────────
 
-    public decimal GetTotalExposure()
+    public async Task<decimal> GetTotalExposureAsync()
     {
-        using var scope = _scopeFactory.CreateScope();
+        await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-        return repo.GetTotalExposureAsync(DefaultUserId).GetAwaiter().GetResult();
+        return await repo.GetTotalExposureAsync(DefaultUserId);
     }
 
-    public int CountBetsOnMatch(string matchId)
+    public async Task<int> CountBetsOnMatchAsync(string matchId)
     {
-        using var scope = _scopeFactory.CreateScope();
+        await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-        return repo.CountBetsOnMatchAsync(matchId, DefaultUserId).GetAwaiter().GetResult();
+        return await repo.CountBetsOnMatchAsync(matchId, DefaultUserId);
     }
 
-    public int GetConsecutiveLosses()
+    public async Task<int> GetConsecutiveLossesAsync()
     {
-        using var scope = _scopeFactory.CreateScope();
+        await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-        return repo.GetConsecutiveLossesAsync(DefaultUserId).GetAwaiter().GetResult();
+        return await repo.GetConsecutiveLossesAsync(DefaultUserId);
     }
 
-    public int GetCurrentStreak()
+    public async Task<int> GetCurrentStreakAsync()
     {
-        using var scope = _scopeFactory.CreateScope();
+        await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-        return repo.GetCurrentStreakAsync(DefaultUserId).GetAwaiter().GetResult();
+        return await repo.GetCurrentStreakAsync(DefaultUserId);
     }
 
-    public List<object> GetStatsBySport()
-    {
-        using var scope = _scopeFactory.CreateScope();
-        var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
+    // ── Aggregate stats used by BettingController ─────────────────────────────
 
-        var bets = repo.GetAllAsync(DefaultUserId).GetAwaiter().GetResult()
-            .Where(b => b.Result != "Pending");
+    public async Task<(int Total, int Wins, int Losses, decimal TotalPnL, double? AvgCLV)> GetStatsAsync()
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var repo    = scope.ServiceProvider.GetRequiredService<IBetRepository>();
+        var settled = (await repo.GetAllAsync(DefaultUserId)).Where(b => b.Result != "Pending").ToList();
+
+        var clvBets = settled.Where(b => b.CLV.HasValue).ToList();
+        double? avgCLV = clvBets.Count > 0 ? clvBets.Average(b => b.CLV!.Value) : null;
+
+        return (settled.Count, settled.Count(b => b.Result == "Win"),
+                settled.Count(b => b.Result == "Loss"), settled.Sum(b => b.PnL), avgCLV);
+    }
+
+    public async Task<decimal> GetTotalStakedAsync()
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
+        var bets = await repo.GetAllAsync(DefaultUserId);
+        return bets.Where(b => b.Result != "Pending").Sum(b => b.Stake);
+    }
+
+    public async Task<double?> GetAverageEdgeAsync()
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var repo    = scope.ServiceProvider.GetRequiredService<IBetRepository>();
+        var settled = (await repo.GetAllAsync(DefaultUserId)).Where(b => b.Result != "Pending").ToList();
+        return settled.Count > 0 ? Math.Round(settled.Average(b => b.Edge) * 100, 2) : null;
+    }
+
+    public async Task<List<object>> GetStatsBySportAsync()
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
+        var bets = (await repo.GetAllAsync(DefaultUserId)).Where(b => b.Result != "Pending");
 
         return bets
             .GroupBy(b => b.SportType.ToString())
@@ -144,92 +160,30 @@ public class BettingLoggingService : IBettingLoggingService
             .ToList();
     }
 
-    public decimal GetTotalStaked()
+    // ── Mapping ───────────────────────────────────────────────────────────────
+
+    private static Bet MapToEntity(BetHistory d) => new()
     {
-        using var scope = _scopeFactory.CreateScope();
-        var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-
-        var bets = repo.GetAllAsync(DefaultUserId).GetAwaiter().GetResult();
-        return bets.Where(b => b.Result != "Pending").Sum(b => b.Stake);
-    }
-
-    public double? GetAverageEdge()
-    {
-        using var scope = _scopeFactory.CreateScope();
-        var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-
-        var settled = repo.GetAllAsync(DefaultUserId).GetAwaiter().GetResult()
-            .Where(b => b.Result != "Pending")
-            .ToList();
-
-        return settled.Count > 0
-            ? Math.Round(settled.Average(b => b.Edge) * 100, 2)
-            : null;
-    }
-
-    public (int Total, int Wins, int Losses, decimal TotalPnL, double? AvgCLV) GetStats()
-    {
-        using var scope = _scopeFactory.CreateScope();
-        var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-
-        var settled = repo.GetAllAsync(DefaultUserId).GetAwaiter().GetResult()
-            .Where(b => b.Result != "Pending")
-            .ToList();
-
-        var clvBets = settled.Where(b => b.CLV.HasValue).ToList();
-        double? avgCLV = clvBets.Count > 0 ? clvBets.Average(b => b.CLV!.Value) : null;
-
-        return (settled.Count, settled.Count(b => b.Result == "Win"),
-                settled.Count(b => b.Result == "Loss"), settled.Sum(b => b.PnL), avgCLV);
-    }
-
-    // ── Mapping between domain model and entity ───────────────────────────────
-
-    private static Bet MapToEntity(BetHistory domain) => new()
-    {
-        Id = domain.Id,
-        UserId = DefaultUserId,
-        MatchId = domain.MatchId,
-        HomeTeam = domain.HomeTeam,
-        AwayTeam = domain.AwayTeam,
-        Team = domain.Team,
-        Outcome = domain.Outcome,
-        Odds = domain.Odds,
-        ClosingOdds = domain.ClosingOdds,
-        CLV = domain.CLV,
-        Probability = domain.Probability,
-        Edge = domain.Edge,
-        Stake = domain.Stake,
-        DateTimePlaced = domain.DateTimePlaced,
-        LineMovementStatus = domain.LineMovementStatus,
-        Result = domain.Result,
-        PnL = domain.PnL,
-        SportType = domain.SportType
+        Id = d.Id, UserId = DefaultUserId, MatchId = d.MatchId,
+        HomeTeam = d.HomeTeam, AwayTeam = d.AwayTeam, Team = d.Team,
+        Outcome = d.Outcome, Odds = d.Odds, ClosingOdds = d.ClosingOdds,
+        CLV = d.CLV, Probability = d.Probability, Edge = d.Edge,
+        Stake = d.Stake, DateTimePlaced = d.DateTimePlaced,
+        LineMovementStatus = d.LineMovementStatus, Result = d.Result,
+        PnL = d.PnL, SportType = d.SportType
     };
 
-    private static BetHistory MapToDomain(Bet entity) => new()
+    private static BetHistory MapToDomain(Bet e) => new()
     {
-        Id = entity.Id,
-        MatchId = entity.MatchId,
-        HomeTeam = entity.HomeTeam,
-        AwayTeam = entity.AwayTeam,
-        Team = entity.Team,
-        Outcome = entity.Outcome,
-        Odds = entity.Odds,
-        ClosingOdds = entity.ClosingOdds,
-        CLV = entity.CLV,
-        Probability = entity.Probability,
-        Edge = entity.Edge,
-        Stake = entity.Stake,
-        DateTimePlaced = entity.DateTimePlaced,
-        LineMovementStatus = entity.LineMovementStatus,
-        Result = entity.Result,
-        PnL = entity.PnL,
-        SportType = entity.SportType
+        Id = e.Id, MatchId = e.MatchId, HomeTeam = e.HomeTeam,
+        AwayTeam = e.AwayTeam, Team = e.Team, Outcome = e.Outcome,
+        Odds = e.Odds, ClosingOdds = e.ClosingOdds, CLV = e.CLV,
+        Probability = e.Probability, Edge = e.Edge, Stake = e.Stake,
+        DateTimePlaced = e.DateTimePlaced, LineMovementStatus = e.LineMovementStatus,
+        Result = e.Result, PnL = e.PnL, SportType = e.SportType
     };
 }
 
-/// <summary>Record of a bet that was blocked by ValidationService.</summary>
 public class RejectedBet
 {
     public string       MatchId   { get; set; } = string.Empty;

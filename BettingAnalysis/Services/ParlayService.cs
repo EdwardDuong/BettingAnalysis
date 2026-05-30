@@ -23,10 +23,10 @@ public class ParlayService : IParlayService
     private readonly IBankrollService      _bankroll;
     private readonly IBettingConfigService _cfg;
 
-    private const int     MinLegs          = 3;
-    private const int     MaxLegs          = 5;
-    private const int     MaxEligible      = 25;
-    private const decimal MinCombinedOdds  = 3.0m;
+    private const int     MinLegs         = 3;
+    private const int     MaxLegs         = 5;
+    private const int     MaxEligible     = 25;
+    private const decimal MinCombinedOdds = 3.0m;
 
     public ParlayService(IBankrollService bankroll, IBettingConfigService cfg)
     {
@@ -34,12 +34,11 @@ public class ParlayService : IParlayService
         _cfg      = cfg;
     }
 
-    public List<ParlayCombo> BuildCombos(List<BetOpportunity> opportunities)
+    public async Task<List<ParlayCombo>> BuildCombosAsync(List<BetOpportunity> opportunities)
     {
         var config   = _cfg.Get();
-        var bankroll = _bankroll.GetBankroll();
+        var bankroll = await _bankroll.GetBankrollAsync();
 
-        // Base eligibility: exclude SKIP, drifting lines, and suspicious HIGH_EDGE.
         var baseEligible = opportunities
             .Where(o => o.AiValidation?.Decision != "SKIP"
                 && o.LineMovementStatus != "Drifting"
@@ -50,12 +49,9 @@ public class ParlayService : IParlayService
 
         if (baseEligible.Count < MinLegs) return [];
 
-        // Quality-gated pools per leg count.
         var goodBet       = baseEligible.Where(o => o.AiValidation?.Decision == "GOOD_BET").ToList();
         var goodBetScore7 = goodBet.Where(o => (o.AiValidation?.Score ?? 0) >= 7).ToList();
 
-        // Safe pool: favourites only (prob ≥ 55%). Keeps combined win prob reasonable.
-        // Without this, a single longshot leg (e.g. 28% prob) drags the whole combo to ~14% win rate.
         var safePool = baseEligible
             .Where(o => o.Probability >= 0.55 && (o.AiValidation?.Score ?? 0) >= 6)
             .ToList();
@@ -108,7 +104,6 @@ public class ParlayService : IParlayService
         BettingConfig config,
         Bankroll bankroll)
     {
-        // Greedy: pick highest-priority legs, one per match (no correlated outcomes)
         var selected    = new List<BetOpportunity>();
         var usedMatches = new HashSet<string>();
 
@@ -125,10 +120,6 @@ public class ParlayService : IParlayService
         if (combinedOdds < MinCombinedOdds) return null;
 
         double combinedProb = selected.Aggregate(1.0, (acc, o) => acc * o.Probability);
-
-        // Reject if the combined win probability is below the tier floor.
-        // e.g. "Safe" (3-leg) requires ≥ 20% combined prob — if a longshot leg drags it below,
-        // this combo isn't actually safe and shouldn't be shown with that label.
         if (combinedProb < minCombinedProb) return null;
 
         double ev = (double)combinedOdds * combinedProb - 1.0;

@@ -4,80 +4,59 @@ using BettingAnalysis.Models;
 
 namespace BettingAnalysis.Services;
 
-/// <summary>
-/// Manages the core bankroll state with database persistence.
-/// Automatically creates snapshots after each result update for historical tracking.
-/// Loads latest snapshot on startup for state recovery.
-/// </summary>
 public class BankrollService : IBankrollService
 {
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly decimal _initialBankroll;
     private readonly decimal _maxStakePct;
     private readonly decimal _dailyLossPct;
     private readonly decimal _stopLossPct;
     private readonly decimal _maxExposurePct;
-    private readonly decimal _initialBankroll;
 
-    private decimal _totalBankroll;
-    private decimal _availableBankroll;
-    private decimal _dailyLossUsed;
-    private decimal _cumulativeLoss;
+    private decimal  _totalBankroll;
+    private decimal  _availableBankroll;
+    private decimal  _dailyLossUsed;
+    private decimal  _cumulativeLoss;
     private DateTime _lastResetDate;
 
     private readonly object _lock = new();
-    private const int DefaultUserId = 1; // Individual use — default user
+    private const int DefaultUserId = 1;
 
     public BankrollService(IServiceScopeFactory scopeFactory, IConfiguration config)
     {
-        _scopeFactory = scopeFactory;
+        _scopeFactory    = scopeFactory;
+        _initialBankroll = config.GetValue<decimal>("BettingSettings:InitialBankroll", 10_000m);
+        _maxStakePct     = config.GetValue<decimal>("BettingSettings:MaxStakePercent", 0.03m);
+        _dailyLossPct    = config.GetValue<decimal>("BettingSettings:DailyLossLimitPercent", 0.10m);
+        _stopLossPct     = config.GetValue<decimal>("BettingSettings:StopLossPercent", 0.20m);
+        _maxExposurePct  = config.GetValue<decimal>("BettingSettings:MaxExposurePercent", 0.10m);
 
-        _initialBankroll   = config.GetValue<decimal>("BettingSettings:InitialBankroll", 10_000m);
-        _maxStakePct       = config.GetValue<decimal>("BettingSettings:MaxStakePercent", 0.03m);
-        _dailyLossPct      = config.GetValue<decimal>("BettingSettings:DailyLossLimitPercent", 0.10m);
-        _stopLossPct       = config.GetValue<decimal>("BettingSettings:StopLossPercent", 0.20m);
-        _maxExposurePct    = config.GetValue<decimal>("BettingSettings:MaxExposurePercent", 0.10m);
-
+        // Blocking only here at startup — no request context exists yet, so no deadlock risk.
         LoadLatestSnapshot();
     }
 
-    /// <summary>Returns a snapshot of core bankroll state (without exposure/tilt — added by controller).</summary>
-    public Bankroll GetBankroll()
+    public async Task<Bankroll> GetBankrollAsync()
     {
+        await ResetDailyIfNeededAsync();
         lock (_lock)
         {
-            ResetDailyIfNeeded();
-            return new Bankroll
-            {
-                TotalBankroll     = _totalBankroll,
-                AvailableBankroll = _availableBankroll,
-                MaxStakePerBet    = _totalBankroll * _maxStakePct,
-                DailyLossLimit    = _totalBankroll * _dailyLossPct,
-                StopLossLimit     = _initialBankroll * _stopLossPct,   // Fixed to initial for cumulative measure
-                MaxExposure       = _totalBankroll * _maxExposurePct,
-                DailyLossUsed     = _dailyLossUsed,
-                CumulativeLoss    = _cumulativeLoss,
-                LastResetDate     = _lastResetDate,
-            };
+            return BuildSnapshot();
         }
     }
 
-    public void ReserveStake(decimal stake)
+    public async Task ReserveStakeAsync(decimal stake)
     {
-        lock (_lock)
-        {
-            _availableBankroll -= stake;
-            SaveSnapshot(); // Persist state change
-        }
+        lock (_lock) { _availableBankroll -= stake; }
+        await SaveSnapshotAsync();
     }
 
-    /// <summary>Rule #10: Update bankroll after every result.</summary>
-    public void UpdateAfterResult(decimal stake, decimal odds, string result)
+    public async Task UpdateAfterResultAsync(decimal stake, decimal odds, string result)
     {
         lock (_lock)
         {
             if (result == "Win")
             {
-                decimal profit = stake * (odds - 1m);
+                decimal profit     = stake * (odds - 1m);
                 _availableBankroll += stake + profit;
                 _totalBankroll     += profit;
             }
@@ -87,16 +66,11 @@ public class BankrollService : IBankrollService
                 _cumulativeLoss += stake;
                 _totalBankroll  -= stake;
             }
-
-            SaveSnapshot(); // Persist after every result
         }
+        await SaveSnapshotAsync();
     }
 
-    /// <summary>
-    /// Hard reset — wipes all loss counters and restores the bankroll to
-    /// <paramref name="newAmount"/> (defaults to the configured initial bankroll).
-    /// </summary>
-    public void Reset(decimal? newAmount = null)
+    public async Task ResetAsync(decimal? newAmount = null)
     {
         lock (_lock)
         {
@@ -106,33 +80,44 @@ public class BankrollService : IBankrollService
             _dailyLossUsed     = 0;
             _cumulativeLoss    = 0;
             _lastResetDate     = DateTime.UtcNow.Date;
-
-            SaveSnapshot(); // Persist reset
         }
+        await SaveSnapshotAsync();
     }
 
-    private void ResetDailyIfNeeded()
+    // ── Internal helpers ──────────────────────────────────────────────────────
+
+    private Bankroll BuildSnapshot() => new()
     {
-        var today = DateTime.UtcNow.Date;
-        if (_lastResetDate < today)
-        {
-            _dailyLossUsed = 0;
-            _lastResetDate = today;
-            SaveSnapshot(); // Persist daily reset
-        }
-    }
+        TotalBankroll     = _totalBankroll,
+        AvailableBankroll = _availableBankroll,
+        MaxStakePerBet    = _totalBankroll * _maxStakePct,
+        DailyLossLimit    = _totalBankroll * _dailyLossPct,
+        StopLossLimit     = _initialBankroll * _stopLossPct,
+        MaxExposure       = _totalBankroll * _maxExposurePct,
+        DailyLossUsed     = _dailyLossUsed,
+        CumulativeLoss    = _cumulativeLoss,
+        LastResetDate     = _lastResetDate,
+    };
 
-    // ── Database persistence ──────────────────────────────────────────────────
+    private async Task ResetDailyIfNeededAsync()
+    {
+        bool needsReset;
+        lock (_lock)
+        {
+            needsReset = _lastResetDate < DateTime.UtcNow.Date;
+            if (needsReset) { _dailyLossUsed = 0; _lastResetDate = DateTime.UtcNow.Date; }
+        }
+        if (needsReset) await SaveSnapshotAsync();
+    }
 
     private void LoadLatestSnapshot()
     {
         using var scope = _scopeFactory.CreateScope();
-        var repo = scope.ServiceProvider.GetRequiredService<IBankrollSnapshotRepository>();
-        var betRepo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
+        var repo        = scope.ServiceProvider.GetRequiredService<IBankrollSnapshotRepository>();
 
         var latest = repo.GetLatestSnapshotAsync(DefaultUserId).GetAwaiter().GetResult();
 
-        if (latest != null)
+        if (latest is not null)
         {
             _totalBankroll     = latest.TotalBankroll;
             _availableBankroll = latest.AvailableBankroll;
@@ -142,56 +127,56 @@ public class BankrollService : IBankrollService
         }
         else
         {
-            // First run — initialize with config values
             _totalBankroll     = _initialBankroll;
             _availableBankroll = _initialBankroll;
             _dailyLossUsed     = 0;
             _cumulativeLoss    = 0;
             _lastResetDate     = DateTime.UtcNow.Date;
-
-            SaveSnapshot(); // Create initial snapshot
+            SaveSnapshotAsync().GetAwaiter().GetResult(); // Only blocks once at first startup
         }
     }
 
-    private void SaveSnapshot()
+    private async Task SaveSnapshotAsync()
     {
-        using var scope = _scopeFactory.CreateScope();
-        var repo = scope.ServiceProvider.GetRequiredService<IBankrollSnapshotRepository>();
-        var betRepo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-
-        // Calculate performance metrics
-        var allBets = betRepo.GetAllAsync(DefaultUserId).GetAwaiter().GetResult().ToList();
-        var settledBets = allBets.Where(b => b.Result != "Pending").ToList();
-
-        int totalBets = settledBets.Count;
-        int wins = settledBets.Count(b => b.Result == "Win");
-        int losses = settledBets.Count(b => b.Result == "Loss");
-        double winRate = totalBets > 0 ? (double)wins / totalBets : 0;
-        decimal totalPnL = settledBets.Sum(b => b.PnL);
-        double roi = _initialBankroll > 0 ? (double)(totalPnL / _initialBankroll) : 0;
-        double avgCLV = settledBets.Any(b => b.CLV.HasValue)
-            ? settledBets.Where(b => b.CLV.HasValue).Average(b => b.CLV!.Value)
-            : 0;
-
-        var snapshot = new BankrollSnapshot
+        decimal total, available, dailyLoss, cumLoss;
+        lock (_lock)
         {
-            UserId = DefaultUserId,
-            TotalBankroll = _totalBankroll,
-            AvailableBankroll = _availableBankroll,
-            TotalExposure = betRepo.GetTotalExposureAsync(DefaultUserId).GetAwaiter().GetResult(),
-            DailyLossUsed = _dailyLossUsed,
-            CumulativeLoss = _cumulativeLoss,
-            ConsecutiveLosses = betRepo.GetConsecutiveLossesAsync(DefaultUserId).GetAwaiter().GetResult(),
-            TotalPnL = totalPnL,
-            ROI = roi,
-            TotalBetsPlaced = totalBets,
-            WinCount = wins,
-            LossCount = losses,
-            WinRate = winRate,
-            AverageCLV = avgCLV,
-            SnapshotDate = DateTime.UtcNow
-        };
+            total     = _totalBankroll;
+            available = _availableBankroll;
+            dailyLoss = _dailyLossUsed;
+            cumLoss   = _cumulativeLoss;
+        }
 
-        repo.AddAsync(snapshot).GetAwaiter().GetResult();
+        await using var scope   = _scopeFactory.CreateAsyncScope();
+        var repo                = scope.ServiceProvider.GetRequiredService<IBankrollSnapshotRepository>();
+        var betRepo             = scope.ServiceProvider.GetRequiredService<IBetRepository>();
+
+        var exposure     = await betRepo.GetTotalExposureAsync(DefaultUserId);
+        var consecLosses = await betRepo.GetConsecutiveLossesAsync(DefaultUserId);
+        var allBets      = (await betRepo.GetAllAsync(DefaultUserId)).Where(b => b.Result != "Pending").ToList();
+
+        int wins     = allBets.Count(b => b.Result == "Win");
+        decimal pnl  = allBets.Sum(b => b.PnL);
+        double avgCLV = allBets.Any(b => b.CLV.HasValue)
+            ? allBets.Where(b => b.CLV.HasValue).Average(b => b.CLV!.Value) : 0;
+
+        await repo.AddAsync(new BankrollSnapshot
+        {
+            UserId            = DefaultUserId,
+            TotalBankroll     = total,
+            AvailableBankroll = available,
+            TotalExposure     = exposure,
+            DailyLossUsed     = dailyLoss,
+            CumulativeLoss    = cumLoss,
+            ConsecutiveLosses = consecLosses,
+            TotalPnL          = pnl,
+            ROI               = _initialBankroll > 0 ? (double)(pnl / _initialBankroll) : 0,
+            TotalBetsPlaced   = allBets.Count,
+            WinCount          = wins,
+            LossCount         = allBets.Count - wins,
+            WinRate           = allBets.Count > 0 ? (double)wins / allBets.Count : 0,
+            AverageCLV        = avgCLV,
+            SnapshotDate      = DateTime.UtcNow
+        });
     }
 }
