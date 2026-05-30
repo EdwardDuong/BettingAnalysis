@@ -26,4 +26,16 @@ public interface IBetRepository
     Task<int> GetConsecutiveLossesAsync(int userId);
     Task<int> GetCurrentStreakAsync(int userId);
     Task<decimal> GetDailyLossAsync(int userId, DateTime date);
+
+    /// <summary>Single SQL pass over settled bets — avoids full table fetch for snapshot writing.</summary>
+    Task<(int Total, int Wins, int Losses, decimal TotalPnL, double AvgCLV)> GetSettledStatsAsync(int userId);
+
+    /// <summary>Total stake wagered on all settled bets.</summary>
+    Task<decimal> GetTotalStakedAsync(int userId);
+
+    /// <summary>Average edge (as a fraction) across all settled bets; null if no history.</summary>
+    Task<double?> GetAverageEdgeAsync(int userId);
+
+    /// <summary>Slim projection of settled bets for per-sport grouping — no full entity load.</summary>
+    Task<List<BettingAnalysis.Models.SettledBetSlice>> GetSettledSlicesAsync(int userId);
 }

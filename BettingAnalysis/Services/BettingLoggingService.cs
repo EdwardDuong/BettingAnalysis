@@ -110,39 +110,33 @@ public class BettingLoggingService : IBettingLoggingService
     public async Task<(int Total, int Wins, int Losses, decimal TotalPnL, double? AvgCLV)> GetStatsAsync()
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
-        var repo    = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-        var settled = (await repo.GetAllAsync(DefaultUserId)).Where(b => b.Result != "Pending").ToList();
-
-        var clvBets = settled.Where(b => b.CLV.HasValue).ToList();
-        double? avgCLV = clvBets.Count > 0 ? clvBets.Average(b => b.CLV!.Value) : null;
-
-        return (settled.Count, settled.Count(b => b.Result == "Win"),
-                settled.Count(b => b.Result == "Loss"), settled.Sum(b => b.PnL), avgCLV);
+        var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
+        var (total, wins, losses, pnl, avgClv) = await repo.GetSettledStatsAsync(DefaultUserId);
+        return (total, wins, losses, pnl, avgClv > 0 ? avgClv : (double?)null);
     }
 
     public async Task<decimal> GetTotalStakedAsync()
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-        var bets = await repo.GetAllAsync(DefaultUserId);
-        return bets.Where(b => b.Result != "Pending").Sum(b => b.Stake);
+        return await repo.GetTotalStakedAsync(DefaultUserId);
     }
 
     public async Task<double?> GetAverageEdgeAsync()
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
-        var repo    = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-        var settled = (await repo.GetAllAsync(DefaultUserId)).Where(b => b.Result != "Pending").ToList();
-        return settled.Count > 0 ? Math.Round(settled.Average(b => b.Edge) * 100, 2) : null;
+        var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
+        var avg  = await repo.GetAverageEdgeAsync(DefaultUserId);
+        return avg.HasValue ? Math.Round(avg.Value * 100, 2) : null;
     }
 
     public async Task<List<object>> GetStatsBySportAsync()
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
-        var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-        var bets = (await repo.GetAllAsync(DefaultUserId)).Where(b => b.Result != "Pending");
+        var repo   = scope.ServiceProvider.GetRequiredService<IBetRepository>();
+        var slices = await repo.GetSettledSlicesAsync(DefaultUserId);
 
-        return bets
+        return slices
             .GroupBy(b => b.SportType.ToString())
             .Select(g => (object)new
             {

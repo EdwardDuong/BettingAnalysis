@@ -151,14 +151,10 @@ public class BankrollService : IBankrollService
         var repo                = scope.ServiceProvider.GetRequiredService<IBankrollSnapshotRepository>();
         var betRepo             = scope.ServiceProvider.GetRequiredService<IBetRepository>();
 
+        // Aggregate queries — no full table fetch
+        var (betsTotal, wins, losses, pnl, avgCLV) = await betRepo.GetSettledStatsAsync(DefaultUserId);
         var exposure     = await betRepo.GetTotalExposureAsync(DefaultUserId);
         var consecLosses = await betRepo.GetConsecutiveLossesAsync(DefaultUserId);
-        var allBets      = (await betRepo.GetAllAsync(DefaultUserId)).Where(b => b.Result != "Pending").ToList();
-
-        int wins     = allBets.Count(b => b.Result == "Win");
-        decimal pnl  = allBets.Sum(b => b.PnL);
-        double avgCLV = allBets.Any(b => b.CLV.HasValue)
-            ? allBets.Where(b => b.CLV.HasValue).Average(b => b.CLV!.Value) : 0;
 
         await repo.AddAsync(new BankrollSnapshot
         {
@@ -171,10 +167,10 @@ public class BankrollService : IBankrollService
             ConsecutiveLosses = consecLosses,
             TotalPnL          = pnl,
             ROI               = _initialBankroll > 0 ? (double)(pnl / _initialBankroll) : 0,
-            TotalBetsPlaced   = allBets.Count,
+            TotalBetsPlaced   = betsTotal,
             WinCount          = wins,
-            LossCount         = allBets.Count - wins,
-            WinRate           = allBets.Count > 0 ? (double)wins / allBets.Count : 0,
+            LossCount         = losses,
+            WinRate           = betsTotal > 0 ? (double)wins / betsTotal : 0,
             AverageCLV        = avgCLV,
             SnapshotDate      = DateTime.UtcNow
         });

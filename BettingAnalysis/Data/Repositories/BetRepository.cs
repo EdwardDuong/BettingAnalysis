@@ -132,15 +132,46 @@ public class BetRepository : IBetRepository
     public async Task<decimal> GetDailyLossAsync(int userId, DateTime date)
     {
         var startOfDay = date.Date;
-        var endOfDay = startOfDay.AddDays(1);
+        var endOfDay   = startOfDay.AddDays(1);
 
-        var losses = await _context.Bets
+        return await _context.Bets
             .Where(b => b.UserId == userId
                 && b.Result == "Loss"
                 && b.DateTimePlaced >= startOfDay
                 && b.DateTimePlaced < endOfDay)
             .SumAsync(b => Math.Abs(b.PnL));
-
-        return losses;
     }
+
+    public async Task<(int Total, int Wins, int Losses, decimal TotalPnL, double AvgCLV)> GetSettledStatsAsync(int userId)
+    {
+        var settled = _context.Bets
+            .Where(b => b.UserId == userId && b.Result != "Pending");
+
+        var total  = await settled.CountAsync();
+        var wins   = await settled.CountAsync(b => b.Result == "Win");
+        var pnl    = total > 0 ? await settled.SumAsync(b => b.PnL) : 0m;
+        var avgClv = total > 0
+            ? await settled.Where(b => b.CLV.HasValue).AverageAsync(b => (double?)b.CLV) ?? 0.0
+            : 0.0;
+
+        return (total, wins, total - wins, pnl, avgClv);
+    }
+
+    public async Task<decimal> GetTotalStakedAsync(int userId)
+        => await _context.Bets
+            .Where(b => b.UserId == userId && b.Result != "Pending")
+            .SumAsync(b => (decimal?)b.Stake) ?? 0m;
+
+    public async Task<double?> GetAverageEdgeAsync(int userId)
+    {
+        var settled = _context.Bets.Where(b => b.UserId == userId && b.Result != "Pending");
+        var count   = await settled.CountAsync();
+        return count > 0 ? await settled.AverageAsync(b => (double?)b.Edge) : null;
+    }
+
+    public async Task<List<BettingAnalysis.Models.SettledBetSlice>> GetSettledSlicesAsync(int userId)
+        => await _context.Bets
+            .Where(b => b.UserId == userId && b.Result != "Pending")
+            .Select(b => new BettingAnalysis.Models.SettledBetSlice(b.SportType, b.Result, b.PnL, b.Edge, b.CLV))
+            .ToListAsync();
 }
