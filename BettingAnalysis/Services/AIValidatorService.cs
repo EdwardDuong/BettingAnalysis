@@ -6,26 +6,25 @@ namespace BettingAnalysis.Services;
 /// <summary>
 /// AI Validation Layer — scores and classifies betting opportunities.
 ///
-/// Score combines two independent dimensions:
-///   1. EV (expected profit per dollar) — is the bet mathematically worth it?
-///   2. Win probability — how often will it win? (affects variance and comfort)
-///
-/// Scoring (0–10):
+/// Score (0–10):
 ///   Base: 5
-///   EV bonuses:   +1 at threshold+3%,  +2 at threshold+6%
-///   Probability:  +2 if prob > 65%  (comfortable win rate, realises edge quickly)
-///                 +1 if prob > 50%  (slight favourite)
-///                 −1 if prob < 35%  (longshot — expect losing streaks)
-///   Steaming:     +1 (sharp money confirming model)
-///   Drifting:     −2, forced SKIP (market disagrees — do not record)
-///   BadTiming:    −1
-///   HIGH_EDGE:    warning flag only, no score penalty
-///   Clamped to [0, 10]
+///   EV:          +1 at threshold+3%,  +2 at threshold+6%
+///   Probability: +2 if prob > 65%  (comfortable win rate, realises edge quickly)
+///                +1 if prob > 50%  (slight favourite)
+///                −1 if prob < 35%  (longshot — expect losing streaks)
+///   Steaming:    +1 (sharp money confirming model)
+///   Drifting:    −2, forced SKIP
+///   HighEdge:    −2 (suspiciously high EV — likely stale odds or data error)
+///   OddsTooLow:  −1 (odds < 1.5 — no payout margin for error)
+///   HighVariance: −1 (odds > 3.0 — high bankroll volatility)
+///   EplLowEdge:  −1 (EPL + edge < 8% — liquid market, thin edge not enough)
+///   CorrelatedBet: −1 (multiple selections on same match)
+///   BadTiming:   −1
 ///
 /// Decision:
-///   GOOD_BET → EV ≥ threshold + score ≥ 6 + no drifting
-///   RISKY    → EV ≥ threshold + score < 6  (positive EV but low win prob or concern)
-///   SKIP     → EV < threshold OR line drifting
+///   GOOD_BET → score ≥ 6 + not drifting + edge ≥ threshold (non-parlay)
+///   RISKY    → score < 6 (positive EV but concern)
+///   SKIP     → edge < threshold (non-parlay) OR line drifting
 /// </summary>
 public class AIValidatorService : IAIValidatorService
 {
@@ -35,9 +34,12 @@ public class AIValidatorService : IAIValidatorService
 
     public List<ValidatedBet> Validate(List<BetOpportunity> opportunities)
     {
-        var emptyPerMatch = new Dictionary<string, int>();
+        var perMatch = opportunities
+            .GroupBy(o => o.MatchId)
+            .ToDictionary(g => g.Key, g => g.Count());
+
         return opportunities
-            .Select(opp => ValidateOne(opp, emptyPerMatch, parlayMode: false))
+            .Select(opp => ValidateOne(opp, perMatch, parlayMode: false))
             .ToList();
     }
 
@@ -60,15 +62,13 @@ public class AIValidatorService : IAIValidatorService
         double edgeBonusHigh = config.EdgeThreshold + 0.06;
 
         // ── EV bonuses ────────────────────────────────────────────────────────
-        if (opp.Edge > edgeBonusHigh)      score += 2;
-        else if (opp.Edge > edgeBonusLow)  score += 1;
+        if (opp.Edge > edgeBonusHigh)     score += 2;
+        else if (opp.Edge > edgeBonusLow) score += 1;
 
-        // ── Win probability factor ─────────────────────────────────────────────
-        // High prob = lower variance, edge realises faster, more comfortable to hold.
-        // Low prob = expect losing streaks even when EV is positive.
-        if (opp.Probability > 0.65)       score += 2;
-        else if (opp.Probability > 0.50)  score += 1;
-        else if (opp.Probability < 0.35)  score -= 1;
+        // ── Win probability ───────────────────────────────────────────────────
+        if (opp.Probability > 0.65)      score += 2;
+        else if (opp.Probability > 0.50) score += 1;
+        else if (opp.Probability < 0.35) score -= 1;
 
         // ── Line movement ─────────────────────────────────────────────────────
         if (opp.LineMovementStatus == "Drifting")
@@ -82,15 +82,44 @@ public class AIValidatorService : IAIValidatorService
             score += 1;
         }
 
-        // ── Suspiciously high EV — warn only ─────────────────────────────────
+        // ── Suspiciously high EV ──────────────────────────────────────────────
         if (opp.Edge > config.HighEdgeThreshold)
+        {
             flags.Add(ValidationFlags.HighEdge);
+            score -= 2;
+        }
+
+        // ── Odds sanity ───────────────────────────────────────────────────────
+        if (opp.Odds < 1.5m)
+        {
+            flags.Add(ValidationFlags.OddsTooLow);
+            score -= 1;
+        }
+        else if (opp.Odds > 3.0m)
+        {
+            flags.Add(ValidationFlags.HighVariance);
+            score -= 1;
+        }
+
+        // ── EPL thin-edge warning ─────────────────────────────────────────────
+        if (opp.SportType == SportType.EPL && opp.Edge < 0.08)
+        {
+            flags.Add(ValidationFlags.EplLowEdge);
+            score -= 1;
+        }
 
         // ── Timing window ─────────────────────────────────────────────────────
-        var hoursUntil = opp.HoursUntilKickoff;
-        if (hoursUntil < config.PreMatchMinHours || hoursUntil > config.PreMatchMaxHours)
+        if (opp.HoursUntilKickoff < config.PreMatchMinHours ||
+            opp.HoursUntilKickoff > config.PreMatchMaxHours)
         {
             flags.Add(ValidationFlags.BadTiming);
+            score -= 1;
+        }
+
+        // ── Correlated bets (non-parlay only — parlay handled structurally) ───
+        if (!parlayMode && perMatch.TryGetValue(opp.MatchId, out var matchCount) && matchCount > 1)
+        {
+            flags.Add(ValidationFlags.CorrelatedBet);
             score -= 1;
         }
 
@@ -124,9 +153,9 @@ public class AIValidatorService : IAIValidatorService
         BetOpportunity opp, string decision, int score,
         List<string> flags, double edgeSkip)
     {
-        bool steaming = flags.Contains(ValidationFlags.Steaming);
-        bool drifting = flags.Contains(ValidationFlags.LineMovingAgainst);
-        bool highEdge = flags.Contains(ValidationFlags.HighEdge);
+        bool steaming  = flags.Contains(ValidationFlags.Steaming);
+        bool drifting  = flags.Contains(ValidationFlags.LineMovingAgainst);
+        bool highEdge  = flags.Contains(ValidationFlags.HighEdge);
         bool badTiming = flags.Contains(ValidationFlags.BadTiming);
         string probDesc = opp.Probability > 0.65 ? "high win probability"
                         : opp.Probability > 0.50 ? "slight favourite"
@@ -141,9 +170,8 @@ public class AIValidatorService : IAIValidatorService
 
         if (decision == "SKIP")
         {
-            if (opp.Edge < edgeSkip)
-                return $"EV {opp.Edge:P1} is below the {edgeSkip:P0} minimum — no value.";
-            return "Line drifting — sharp money moving against this selection. Do not record.";
+            if (drifting) return "Line drifting — sharp money moving against this selection. Do not record.";
+            return $"EV {opp.Edge:P1} is below the {edgeSkip:P0} minimum — no value.";
         }
 
         // RISKY
