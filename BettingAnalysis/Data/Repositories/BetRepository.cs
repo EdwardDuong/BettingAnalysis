@@ -126,7 +126,9 @@ public class BetRepository : IBetRepository
             return 0;
 
         var firstResult = recentBets.First().Result;
-        return recentBets.TakeWhile(b => b.Result == firstResult).Count();
+        var count       = recentBets.TakeWhile(b => b.Result == firstResult).Count();
+        // positive = win streak, negative = loss streak
+        return firstResult == "Win" ? count : -count;
     }
 
     public async Task<decimal> GetDailyLossAsync(int userId, DateTime date)

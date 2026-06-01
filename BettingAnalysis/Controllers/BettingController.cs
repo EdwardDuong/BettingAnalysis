@@ -268,7 +268,8 @@ public class BettingController : ControllerBase
             AvgEdge       = avgEdge,
             AvgCLV        = avgCLV.HasValue ? Math.Round(avgCLV.Value, 2) : (double?)null,
             CLVLabel      = avgCLV.HasValue ? _clv.Interpret(avgCLV.Value) : "No data yet",
-            CurrentStreak = streak,
+            CurrentStreak = Math.Abs(streak),
+            StreakType    = streak > 0 ? "Win" : streak < 0 ? "Loss" : "None",
         });
     }
 
