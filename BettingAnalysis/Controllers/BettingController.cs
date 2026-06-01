@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using BettingAnalysis.Hubs;
 using BettingAnalysis.Interfaces;
 using BettingAnalysis.Models;
@@ -387,7 +388,7 @@ public class BettingController : ControllerBase
     {
         days = Math.Clamp(days, 7, 365);
         var from      = DateTime.UtcNow.AddDays(-days);
-        var snapshots = await _snapshots.GetByDateRangeAsync(1, from, DateTime.UtcNow);
+        var snapshots = await _snapshots.GetByDateRangeAsync(CurrentUserId(), from, DateTime.UtcNow);
 
         var daily = snapshots
             .GroupBy(s => s.SnapshotDate.Date)
@@ -489,6 +490,9 @@ public class BettingController : ControllerBase
     // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
+
+    private int CurrentUserId() =>
+        int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : 1;
 
     private async Task<Bankroll> EnrichedBankrollAsync()
     {
