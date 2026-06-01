@@ -504,8 +504,14 @@ public class BettingController : ControllerBase
         return File(bytes, "text/csv", $"bet-history-{DateTime.UtcNow:yyyyMMdd}.csv");
     }
 
-    private static string Escape(string s) =>
-        s.Contains(',') || s.Contains('"') ? $"\"{s.Replace("\"", "\"\"")}\"" : s;
+    private static string Escape(string s)
+    {
+        // Strip leading formula-injection characters, then always quote to handle newlines/commas.
+        if (s.Length > 0 && s[0] is '=' or '+' or '-' or '@' or '\t' or '\r')
+            s = "'" + s;
+        s = s.Replace("\r", "").Replace("\n", " ");
+        return $"\"{s.Replace("\"", "\"\"")}\"";
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Helpers
