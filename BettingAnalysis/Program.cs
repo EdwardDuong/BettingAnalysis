@@ -189,6 +189,7 @@ static async Task RunApp(string[] args)
     builder.Services.AddSingleton<IAIValidatorService, AIValidatorService>();
     builder.Services.AddSingleton<IOddsService, OddsService>();
     builder.Services.AddSingleton<IParlayService, ParlayService>();
+    builder.Services.AddSingleton<IOpportunityPipelineService, OpportunityPipelineService>();
     builder.Services.AddHostedService<OddsRefreshService>();
 
     // ── Rate limiting (100 req/min per IP; stricter on bet placement) ─────────

@@ -26,6 +26,7 @@ public class BettingController : ControllerBase
     private readonly IBettingConfigService           _cfg;
     private readonly IAIValidatorService             _aiValidator;
     private readonly IParlayService                  _parlay;
+    private readonly IOpportunityPipelineService     _pipeline;
     private readonly IHubContext<BettingHub>         _hub;
     private readonly IBankrollSnapshotRepository     _snapshots;
 
@@ -42,6 +43,7 @@ public class BettingController : ControllerBase
         IBettingConfigService        cfg,
         IAIValidatorService          aiValidator,
         IParlayService               parlay,
+        IOpportunityPipelineService  pipeline,
         IHubContext<BettingHub>      hub,
         IBankrollSnapshotRepository  snapshots)
     {
@@ -57,6 +59,7 @@ public class BettingController : ControllerBase
         _cfg          = cfg;
         _aiValidator  = aiValidator;
         _parlay       = parlay;
+        _pipeline     = pipeline;
         _hub          = hub;
         _snapshots    = snapshots;
     }
@@ -87,57 +90,8 @@ public class BettingController : ControllerBase
             return Ok(new List<BetOpportunity>());
 
         var config       = _cfg.Get();
-        var preMatch     = _odds.GetPreMatchOdds();
-        var opportunities = new List<BetOpportunity>();
-        var now          = DateTime.UtcNow;
+        var opportunities = await _pipeline.BuildOpportunitiesAsync(bankroll);
 
-        foreach (var match in preMatch)
-        {
-            var prediction = _poisson.Predict(match);
-
-            var candidates = new List<(string Outcome, string Team, decimal Odds, decimal? PrevOdds, double Prob)>
-            {
-                ("Home", match.HomeTeam, match.HomeOdds, match.PreviousHomeOdds, prediction.HomeWinProb),
-                ("Away", match.AwayTeam, match.AwayOdds, match.PreviousAwayOdds, prediction.AwayWinProb),
-            };
-            if (match.DrawOdds.HasValue && TheOddsApiService.IsSoccerLeague(match.SportType))
-                candidates.Add(("Draw", "Draw", match.DrawOdds.Value, match.PreviousDrawOdds, prediction.DrawProb));
-
-            foreach (var (outcome, team, odds, prevOdds, prob) in candidates)
-            {
-                var edgeVal    = _edge.CalculateEdge(prob, odds);
-                var movement   = _lineMovement.GetMovement(odds, prevOdds);
-                var hoursUntil = (match.MatchStartTime - now).TotalHours;
-                var stake      = _sizing.CalculateStake(prob, odds, bankroll.AvailableBankroll);
-                stake          = Math.Min(stake, bankroll.MaxStakePerBet);
-
-                var preCheck = await _validation.ValidateAsync(match, team, odds, edgeVal, stake, movement);
-
-                opportunities.Add(new BetOpportunity
-                {
-                    MatchId             = match.MatchId,
-                    HomeTeam            = match.HomeTeam,
-                    AwayTeam            = match.AwayTeam,
-                    Team                = team,
-                    Outcome             = outcome,
-                    Odds                = odds,
-                    Probability         = Math.Round(prob, 4),
-                    Edge                = Math.Round(edgeVal, 4),
-                    SuggestedStake      = stake,
-                    SportType           = match.SportType,
-                    MatchStartTime      = match.MatchStartTime,
-                    HoursUntilKickoff   = Math.Round(hoursUntil, 2),
-                    PreviousOdds        = prevOdds,
-                    LineMovementStatus  = movement.ToString(),
-                    IsHighRisk          = edgeVal >= config.HighEdgeThreshold || movement == LineMovement.Drifting,
-                    RequiresManualCheck = edgeVal >= config.HighEdgeThreshold,
-                    ValidationWarnings  = preCheck.Warnings,
-                    ConfidenceLevel     = ComputeConfidence(prob, edgeVal),
-                });
-            }
-        }
-
-        // ── AI Validator ──────────────────────────────────────────────────────
         var validated = _aiValidator.Validate(opportunities);
         foreach (var opp in opportunities)
         {
@@ -150,13 +104,11 @@ public class BettingController : ControllerBase
             };
         }
 
-        var sorted = opportunities
+        return Ok(opportunities
             .OrderBy(o => o.AiValidation?.Decision == "GOOD_BET" ? 0 : o.AiValidation?.Decision == "RISKY" ? 1 : 2)
             .ThenByDescending(o => o.AiValidation?.Score ?? 0)
             .ThenByDescending(o => o.Edge)
-            .ToList();
-
-        return Ok(sorted);
+            .ToList());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -472,50 +424,7 @@ public class BettingController : ControllerBase
             return Ok(new List<ParlayCombo>());
 
         var config       = _cfg.Get();
-        var preMatch     = _odds.GetPreMatchOdds();
-        var opportunities = new List<BetOpportunity>();
-        var now          = DateTime.UtcNow;
-
-        foreach (var match in preMatch)
-        {
-            var prediction = _poisson.Predict(match);
-            var candidates = new List<(string Outcome, string Team, decimal Odds, decimal? PrevOdds, double Prob)>
-            {
-                ("Home", match.HomeTeam, match.HomeOdds, match.PreviousHomeOdds, prediction.HomeWinProb),
-                ("Away", match.AwayTeam, match.AwayOdds, match.PreviousAwayOdds, prediction.AwayWinProb),
-            };
-            if (match.DrawOdds.HasValue && TheOddsApiService.IsSoccerLeague(match.SportType))
-                candidates.Add(("Draw", "Draw", match.DrawOdds.Value, match.PreviousDrawOdds, prediction.DrawProb));
-
-            foreach (var (outcome, team, odds, prevOdds, prob) in candidates)
-            {
-                var edgeVal = _edge.CalculateEdge(prob, odds);
-                if (edgeVal < config.ParlayMinEdge) continue;
-
-                var movement   = _lineMovement.GetMovement(odds, prevOdds);
-                var hoursUntil = (match.MatchStartTime - now).TotalHours;
-                var stake      = Math.Min(_sizing.CalculateStake(prob, odds, bankroll.AvailableBankroll), bankroll.MaxStakePerBet);
-
-                opportunities.Add(new BetOpportunity
-                {
-                    MatchId            = match.MatchId,
-                    HomeTeam           = match.HomeTeam,
-                    AwayTeam           = match.AwayTeam,
-                    Team               = team,
-                    Outcome            = outcome,
-                    Odds               = odds,
-                    Probability        = Math.Round(prob, 4),
-                    Edge               = Math.Round(edgeVal, 4),
-                    SuggestedStake     = stake,
-                    SportType          = match.SportType,
-                    MatchStartTime     = match.MatchStartTime,
-                    HoursUntilKickoff  = Math.Round(hoursUntil, 2),
-                    PreviousOdds       = prevOdds,
-                    LineMovementStatus = movement.ToString(),
-                    ConfidenceLevel    = ComputeConfidence(prob, edgeVal),
-                });
-            }
-        }
+        var opportunities = await _pipeline.BuildParlayPoolAsync(bankroll);
 
         var validated = _aiValidator.ValidateForParlay(opportunities);
         foreach (var opp in opportunities)
@@ -575,10 +484,6 @@ public class BettingController : ControllerBase
 
     private static string Escape(string s) =>
         s.Contains(',') || s.Contains('"') ? $"\"{s.Replace("\"", "\"\"")}\"" : s;
-
-    private static string ComputeConfidence(double prob, double edge) =>
-        edge >= 0.15 && prob >= 0.60 ? "High" :
-        edge >= 0.10 || prob >= 0.58 ? "Medium" : "Low";
 
     // ─────────────────────────────────────────────────────────────────────────
     // Helpers
