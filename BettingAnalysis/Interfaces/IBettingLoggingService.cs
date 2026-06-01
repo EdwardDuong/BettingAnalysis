@@ -8,6 +8,7 @@ public interface IBettingLoggingService
     // ── Bet History ───────────────────────────────────────────────────────────
     Task LogBetAsync(BetHistory bet);
     Task<List<BetHistory>> GetHistoryAsync();
+    Task<(List<BetHistory> Items, int Total)> GetHistoryPagedAsync(int page, int pageSize);
     Task<BetHistory?> GetByIdAsync(Guid id);
     Task UpdateResultAsync(Guid id, string result, decimal pnl, decimal? closingOdds, double? clv);
 

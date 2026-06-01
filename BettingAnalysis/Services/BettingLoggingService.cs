@@ -31,6 +31,14 @@ public class BettingLoggingService : IBettingLoggingService
         return bets.Select(MapToDomain).ToList();
     }
 
+    public async Task<(List<BetHistory> Items, int Total)> GetHistoryPagedAsync(int page, int pageSize)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var repo            = scope.ServiceProvider.GetRequiredService<IBetRepository>();
+        var (bets, total)   = await repo.GetPagedAsync(DefaultUserId, page, pageSize);
+        return (bets.Select(MapToDomain).ToList(), total);
+    }
+
     public async Task<BetHistory?> GetByIdAsync(Guid id)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();

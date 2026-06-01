@@ -11,6 +11,7 @@ public interface IBetRepository
     // ── CRUD Operations ───────────────────────────────────────────────────────
     Task<Bet?> GetByIdAsync(Guid id);
     Task<IEnumerable<Bet>> GetAllAsync(int userId);
+    Task<(IEnumerable<Bet> Items, int Total)> GetPagedAsync(int userId, int page, int pageSize);
     Task<IEnumerable<Bet>> GetPendingBetsAsync(int userId);
     Task AddAsync(Bet bet);
     Task UpdateAsync(Bet bet);

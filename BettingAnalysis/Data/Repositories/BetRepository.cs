@@ -33,6 +33,21 @@ public class BetRepository : IBetRepository
             .ToListAsync();
     }
 
+    public async Task<(IEnumerable<Bet> Items, int Total)> GetPagedAsync(int userId, int page, int pageSize)
+    {
+        var query = _context.Bets
+            .Where(b => b.UserId == userId)
+            .OrderByDescending(b => b.DateTimePlaced);
+
+        var total = await query.CountAsync();
+        var items = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return (items, total);
+    }
+
     public async Task<IEnumerable<Bet>> GetPendingBetsAsync(int userId)
     {
         return await _context.Bets

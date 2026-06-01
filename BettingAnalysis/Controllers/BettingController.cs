@@ -195,8 +195,22 @@ public class BettingController : ControllerBase
     // ─────────────────────────────────────────────────────────────────────────
 
     [HttpGet("history")]
-    public async Task<ActionResult<List<BetHistory>>> GetHistory()
-        => Ok(await _log.GetHistoryAsync());
+    public async Task<ActionResult<List<BetHistory>>> GetHistory(
+        [FromQuery] int page     = 1,
+        [FromQuery] int pageSize = 50)
+    {
+        page     = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 200);
+
+        var (items, total) = await _log.GetHistoryPagedAsync(page, pageSize);
+
+        Response.Headers["X-Total-Count"]  = total.ToString();
+        Response.Headers["X-Page"]         = page.ToString();
+        Response.Headers["X-Page-Size"]    = pageSize.ToString();
+        Response.Headers["X-Total-Pages"]  = ((int)Math.Ceiling((double)total / pageSize)).ToString();
+
+        return Ok(items);
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // GET /Betting/bankroll
