@@ -264,10 +264,16 @@ public class BettingController : ControllerBase
     [HttpGet("stats")]
     public async Task<ActionResult> GetStats()
     {
-        var (total, wins, losses, totalPnL, avgCLV) = await _log.GetStatsAsync();
-        var streak      = await _log.GetCurrentStreakAsync();
-        var totalStaked = await _log.GetTotalStakedAsync();
-        var avgEdge     = await _log.GetAverageEdgeAsync();
+        var statsTask   = _log.GetStatsAsync();
+        var streakTask  = _log.GetCurrentStreakAsync();
+        var stakedTask  = _log.GetTotalStakedAsync();
+        var edgeTask    = _log.GetAverageEdgeAsync();
+        await Task.WhenAll(statsTask, streakTask, stakedTask, edgeTask);
+
+        var (total, wins, losses, totalPnL, avgCLV) = statsTask.Result;
+        var streak      = streakTask.Result;
+        var totalStaked = stakedTask.Result;
+        var avgEdge     = edgeTask.Result;
         var roi         = totalStaked > 0
             ? Math.Round((double)(totalPnL / totalStaked) * 100, 1) : 0.0;
 
