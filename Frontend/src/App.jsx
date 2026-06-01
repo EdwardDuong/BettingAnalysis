@@ -141,11 +141,11 @@ export default function App() {
                     color={stats.roi >= 5 ? 'text-green-400' : stats.roi >= 0 ? 'text-yellow-400' : 'text-red-400'}
                   />
                 )}
-                {stats.currentStreak != null && stats.currentStreak !== 0 && (
+                {stats.currentStreak > 0 && stats.streakType !== 'None' && (
                   <Pill
-                    label={stats.currentStreak > 0 ? 'W Streak' : 'L Streak'}
-                    value={`${Math.abs(stats.currentStreak)}`}
-                    color={stats.currentStreak > 0 ? 'text-green-400' : 'text-red-400'}
+                    label={`${stats.streakType} Streak`}
+                    value={stats.currentStreak}
+                    color={stats.streakType === 'Win' ? 'text-green-400' : 'text-red-400'}
                   />
                 )}
               </div>

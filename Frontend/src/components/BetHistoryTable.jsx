@@ -1,14 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { updateResult, exportCsv } from '../services/api.js';
 
 const SPORT_EMOJI = { EPL: '⚽', LaLiga: '⚽', Bundesliga: '⚽', SerieA: '⚽', Ligue1: '⚽', AFL: '🏈', NRL: '🏉', NBA: '🏀', Esports: '🎮' };
 const fmt = (n) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(n ?? 0);
+const PAGE_SIZE = 20;
 
 export default function BetHistoryTable({ history, onResultUpdated }) {
   const [updating,    setUpdating]    = useState(null);
   const [closingOdds, setClosingOdds] = useState({});
   const [error,       setError]       = useState(null);
   const [search,      setSearch]      = useState('');
+  const [page,        setPage]        = useState(1);
+
+  // Reset to page 1 whenever the search changes
+  useEffect(() => setPage(1), [search]);
 
   const handleResult = async (id, result) => {
     setUpdating(id);
@@ -28,6 +33,10 @@ export default function BetHistoryTable({ history, onResultUpdated }) {
     ? history.filter(b =>
         [b.homeTeam, b.awayTeam, b.team].some(s => s?.toLowerCase().includes(search.toLowerCase())))
     : history;
+
+  const totalPages = Math.max(1, Math.ceil(displayed.length / PAGE_SIZE));
+  const safePage   = Math.min(page, totalPages);
+  const paged      = displayed.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   const settled   = displayed.filter(b => b.result !== 'Pending');
   const totalPnL  = settled.reduce((s, b) => s + (b.pnL ?? 0), 0);
@@ -55,7 +64,9 @@ export default function BetHistoryTable({ history, onResultUpdated }) {
           className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-48"
         />
         <span className="text-gray-500 text-xs flex-1">
-          {displayed.length} of {history.length} recorded bet{history.length !== 1 ? 's' : ''}
+          {displayed.length === history.length
+            ? `${history.length} bet${history.length !== 1 ? 's' : ''}`
+            : `${displayed.length} of ${history.length} bets`}
           {pendingCount > 0 && (
             <span className="ml-2 bg-orange-600 text-white text-xs rounded-full px-1.5 py-0.5">
               {pendingCount} pending
@@ -104,7 +115,7 @@ export default function BetHistoryTable({ history, onResultUpdated }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-700">
-            {displayed.map(bet => {
+            {paged.map(bet => {
               const clvRowBg = bet.clv != null && bet.result !== 'Pending'
                 ? bet.clv >= 3  ? 'bg-green-950 hover:bg-green-900'
                 : bet.clv < 0   ? 'bg-red-950 hover:bg-red-900'
@@ -188,6 +199,40 @@ export default function BetHistoryTable({ history, onResultUpdated }) {
           </tbody>
         </table>
       </div>
+
+      {/* Pagination controls */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-gray-500 text-xs">
+            Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, displayed.length)} of {displayed.length}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPage(1)}
+              disabled={safePage === 1}
+              className="px-2 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
+            >«</button>
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={safePage === 1}
+              className="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
+            >‹ Prev</button>
+            <span className="px-3 py-1 text-xs text-gray-400">
+              {safePage} / {totalPages}
+            </span>
+            <button
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={safePage === totalPages}
+              className="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
+            >Next ›</button>
+            <button
+              onClick={() => setPage(totalPages)}
+              disabled={safePage === totalPages}
+              className="px-2 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
+            >»</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
