@@ -17,6 +17,13 @@ namespace BettingAnalysis.Services;
 /// A combo is rejected if its combined probability is below the tier floor —
 /// this prevents "Safe" being labelled on a 14% win-rate parlay.
 /// Sizing: half-Kelly capped at per-tier stake limits.
+///
+/// BuildDailyDoubleAsync is a separate, differently-shaped pick: instead of a
+/// fixed leg count per risk tier, it finds the safest way (by realized win
+/// probability) to clear a target combined odds (default 2x, "double"),
+/// combining as few or as many legs (up to DailyDoubleMaxLegs) as that requires
+/// — including just one, when a single leg already clears the target and that's
+/// safer than any parlay would be.
 /// </summary>
 public class ParlayService : IParlayService
 {
@@ -35,14 +42,7 @@ public class ParlayService : IParlayService
     public Task<List<ParlayCombo>> BuildCombosAsync(List<BetOpportunity> opportunities, Bankroll bankroll)
     {
         var config = _cfg.Get();
-
-        var baseEligible = opportunities
-            .Where(o => o.AiValidation?.Decision != "SKIP"
-                && o.LineMovementStatus != "Drifting"
-                && !(o.AiValidation?.Flags?.Contains(ValidationFlags.HighEdge) ?? false)
-                && o.Edge >= config.ParlayMinEdge)
-            .Take(MaxEligible)
-            .ToList();
+        var baseEligible = GetBaseEligible(opportunities, config);
 
         if (baseEligible.Count < MinLegs) return Task.FromResult(new List<ParlayCombo>());
 
@@ -91,6 +91,88 @@ public class ParlayService : IParlayService
 
         return Task.FromResult(combos);
     }
+
+    public Task<ParlayCombo?> BuildDailyDoubleAsync(List<BetOpportunity> opportunities, Bankroll bankroll)
+    {
+        var config = _cfg.Get();
+        var baseEligible = GetBaseEligible(opportunities, config);
+        if (baseEligible.Count == 0) return Task.FromResult<ParlayCombo?>(null);
+
+        // Greedy by "odds gained per unit of probability spent" — log(odds)/-log(prob)
+        // — not by raw probability. A leg with lower probability but much higher odds
+        // can clear the target using fewer/cheaper legs than several very-safe-but-
+        // short-odds legs stacked together; sorting by probability alone would miss
+        // that. This naturally reduces to picking a single leg whenever that's the
+        // efficient choice (see class doc). It's a greedy heuristic, not an exact
+        // solver — selecting the true safest subset is a 0/1 knapsack problem, NP-hard
+        // to solve exactly over a 25-candidate pool.
+        var byEfficiency = baseEligible.OrderByDescending(Efficiency).ToList();
+
+        var selected      = new List<BetOpportunity>();
+        var usedMatches   = new HashSet<string>();
+        decimal combinedOdds = 1m;
+
+        foreach (var opp in byEfficiency)
+        {
+            if (combinedOdds >= config.DailyDoubleTargetOdds) break;
+            if (selected.Count >= config.DailyDoubleMaxLegs) break;
+            if (opp.Odds <= 1m) continue;               // no payout margin — never useful
+            if (!usedMatches.Add(opp.MatchId)) continue; // one leg per match, avoids correlated same-match legs
+
+            selected.Add(opp);
+            combinedOdds *= opp.Odds;
+        }
+
+        if (selected.Count == 0 || combinedOdds < config.DailyDoubleTargetOdds)
+            return Task.FromResult<ParlayCombo?>(null); // not enough good legs today to safely clear the target
+
+        return Task.FromResult(BuildDoublePick(selected, config, bankroll));
+    }
+
+    /// <summary>Odds gained (log scale) per unit of win-probability given up. Higher is more "efficient".</summary>
+    private static double Efficiency(BetOpportunity o)
+    {
+        var odds = (double)o.Odds;
+        if (odds <= 1.0) return double.NegativeInfinity;
+        var prob = Math.Clamp(o.Probability, 0.0001, 0.9999);
+        return Math.Log(odds) / -Math.Log(prob);
+    }
+
+    private static ParlayCombo? BuildDoublePick(List<BetOpportunity> selected, BettingConfig config, Bankroll bankroll)
+    {
+        decimal combinedOdds = selected.Aggregate(1m, (acc, o) => acc * o.Odds);
+        double combinedProb  = selected.Aggregate(1.0, (acc, o) => acc * o.Probability);
+        double ev = (double)combinedOdds * combinedProb - 1.0;
+        if (ev <= 0) return null;
+
+        double kellyPct = ev / ((double)combinedOdds - 1.0) * config.KellyFraction;
+        decimal stake   = Math.Max(0m, Math.Round(
+            Math.Min((decimal)kellyPct * bankroll.AvailableBankroll, config.DailyDoubleMaxStake), 2));
+
+        return new ParlayCombo
+        {
+            Legs           = selected.Count,
+            RiskLabel      = selected.Count == 1 ? "Single" : "Parlay",
+            Strategy       = $"Fewest/safest legs found to clear {config.DailyDoubleTargetOdds:0.00}x combined odds " +
+                              "— uses a single leg instead of a parlay whenever that's actually the safer way to reach it.",
+            CombinedOdds   = Math.Round(combinedOdds, 2),
+            CombinedProb   = Math.Round(combinedProb, 4),
+            ExpectedValue  = Math.Round(ev, 4),
+            AvgEdge        = Math.Round(selected.Average(o => o.Edge), 4),
+            SuggestedStake = stake,
+            AvgAiScore     = Math.Round(selected.Average(o => (double)(o.AiValidation?.Score ?? 5)), 1),
+            Selections     = selected.Select(ToParlayLeg).ToList(),
+        };
+    }
+
+    private static List<BetOpportunity> GetBaseEligible(List<BetOpportunity> opportunities, BettingConfig config) =>
+        opportunities
+            .Where(o => o.AiValidation?.Decision != "SKIP"
+                && o.LineMovementStatus != "Drifting"
+                && !(o.AiValidation?.Flags?.Contains(ValidationFlags.HighEdge) ?? false)
+                && o.Edge >= config.ParlayMinEdge)
+            .Take(MaxEligible)
+            .ToList();
 
     private static ParlayCombo? BuildBestCombo(
         List<BetOpportunity> pool,

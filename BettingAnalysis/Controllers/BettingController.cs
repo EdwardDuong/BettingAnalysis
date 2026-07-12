@@ -492,6 +492,35 @@ public class BettingController : ControllerBase
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // GET /Betting/daily-double
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns the single safest way to clear BettingConfig.DailyDoubleTargetOdds
+    /// (default 2x) combined odds using today's opportunities — a single leg if one
+    /// alone clears it more safely than any combination, otherwise a small parlay.
+    /// Computed live on every call (not persisted/locked once per day) — recomputing
+    /// with fresher odds can change the answer.
+    /// </summary>
+    [HttpGet("daily-double")]
+    public async Task<ActionResult<ParlayCombo>> GetDailyDouble()
+    {
+        var bankroll = await EnrichedBankrollAsync(CurrentUserId());
+        if (bankroll.IsStopLossTriggered)
+            return Ok(new { Message = "System halted — stop-loss triggered." });
+
+        var opportunities = await _pipeline.BuildParlayPoolAsync(bankroll);
+        var validated      = _aiValidator.ValidateForParlay(opportunities);
+        foreach (var opp in opportunities)
+            opp.AiValidation = validated.FirstOrDefault(v => v.MatchId == opp.MatchId && v.Outcome == opp.Outcome);
+
+        var pick = await _parlay.BuildDailyDoubleAsync(opportunities, bankroll);
+        return pick is null
+            ? Ok(new { Message = "No safe way to clear the target odds with today's opportunities." })
+            : Ok(pick);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // GET /Betting/stats/sport
     // ─────────────────────────────────────────────────────────────────────────
 

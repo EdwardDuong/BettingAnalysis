@@ -75,6 +75,16 @@ public class BettingConfig
     /// <summary>Rule: Block bets when odds are drifting against prediction.</summary>
     public bool RequireLineMovementCheck { get; set; } = true;
 
+    // ── Daily double-up pick ──────────────────────────────────────────────────
+    /// <summary>Target combined odds for the daily "safest way to double" pick.</summary>
+    public decimal DailyDoubleTargetOdds { get; set; } = 2.0m;
+
+    /// <summary>Max legs the daily double-up pick will combine before giving up.</summary>
+    public int DailyDoubleMaxLegs { get; set; } = 20;
+
+    /// <summary>Dollar cap for the daily double-up pick's suggested stake.</summary>
+    public decimal DailyDoubleMaxStake { get; set; } = 100m;
+
     // ── Non-soccer home-advantage calibration ─────────────────────────────────
     /// <summary>
     /// Home-advantage calibration multiplier per non-soccer sport, applied by
