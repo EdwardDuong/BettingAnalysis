@@ -1,3 +1,4 @@
+using BettingAnalysis.Interfaces;
 using BettingAnalysis.Models;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -24,6 +25,7 @@ public class TheOddsApiService
 {
     private readonly HttpClient _http;
     private readonly string _apiKey;
+    private readonly IBettingConfigService _cfg;
     private readonly ILogger<TheOddsApiService> _logger;
 
     // Maps our SportType enum to The Odds API sport keys
@@ -44,7 +46,15 @@ public class TheOddsApiService
         { SportType.EPL, SportType.LaLiga, SportType.Bundesliga, SportType.SerieA, SportType.Ligue1 };
 
     // League-specific average goals per match (home, away) and historical home win rates.
-    // Used to scale our Poisson model so probabilities are independent of raw market odds.
+    // Used to scale expected goals by this match's market-implied win probability
+    // relative to the league mean — a simplification, not a real Dixon–Coles
+    // attack/defence model (no per-team ratings; every match in a league is scaled
+    // by the same two constants). Because the scaling input (fairHome/fairAway) is
+    // itself derived from this match's own market odds, the resulting model
+    // probability stays highly correlated with the market — most of any resulting
+    // "edge" reflects the Poisson round-trip of that scaling, not independent
+    // forecasting skill. Treat soccer edge with the same skepticism as
+    // GET /Betting/stats/calibration would justify, not as a proven signal.
     private static readonly Dictionary<SportType, (double AvgHome, double AvgAway, double AvgHomeWinRate, double AvgAwayWinRate)> SoccerParams = new()
     {
         { SportType.EPL,        (1.45, 1.05, 0.46, 0.29) },
@@ -59,10 +69,11 @@ public class TheOddsApiService
         PropertyNameCaseInsensitive = true
     };
 
-    public TheOddsApiService(HttpClient http, IConfiguration config, ILogger<TheOddsApiService> logger)
+    public TheOddsApiService(HttpClient http, IConfiguration config, IBettingConfigService cfg, ILogger<TheOddsApiService> logger)
     {
         _http    = http;
         _apiKey  = config.GetValue<string>("BettingSettings:OddsApiKey") ?? string.Empty;
+        _cfg     = cfg;
         _logger  = logger;
     }
 
@@ -124,29 +135,16 @@ public class TheOddsApiService
             .ToList();
     }
 
-    // Home-advantage calibration: market odds systematically underestimate the home
-    // side's winning probability. These multipliers are derived from the gap between
-    // observed long-run home win rates and the average market-implied rate per sport.
-    //   AFL:  ~58% actual home wins vs ~54% market-implied → factor 1.08 / 0.93
-    //   NRL:  ~56% actual            vs ~53% market-implied → factor 1.06 / 0.95
-    //   NBA:  ~59% actual            vs ~54% market-implied → factor 1.09 / 0.92
-    //   EPL handled separately via Poisson goal matrix.
-    private static readonly Dictionary<SportType, (double Home, double Away)> HomeCalibration = new()
-    {
-        { SportType.AFL,     (1.08, 0.93) },
-        { SportType.NRL,     (1.06, 0.95) },
-        { SportType.NBA,     (1.09, 0.92) },
-        { SportType.Esports, (1.04, 0.97) },
-    };
-
     /// <summary>
     /// Map an Odds API event to our MatchOdds model.
     /// Takes the BEST available odds across all returned bookmakers for each outcome.
     /// Lambda values are estimated from de-vigged implied probabilities, then adjusted
-    /// by sport-specific home-advantage calibration so our model is independent of the
-    /// market (pure de-vigged odds produce zero edge by construction).
+    /// by sport-specific home-advantage calibration (BettingConfig.HomeCalibration) so
+    /// our model is independent of the market (pure de-vigged odds produce zero edge
+    /// by construction — see the calibration's own doc comment for why this is a
+    /// deliberately weak, unproven assumption rather than a validated forecast).
     /// </summary>
-    private static MatchOdds? MapToMatchOdds(OddsApiEvent ev, SportType sport)
+    private MatchOdds? MapToMatchOdds(OddsApiEvent ev, SportType sport)
     {
         if (ev.Bookmakers == null || ev.Bookmakers.Count == 0) return null;
 
@@ -198,9 +196,9 @@ public class TheOddsApiService
         {
             // Non-soccer: apply home-advantage calibration factor so model prob
             // differs from raw market — without this the edge is always ≤ 0.
-            HomeCalibration.TryGetValue(sport, out var cal);
-            double adjHome = fairHome * (cal == default ? 1.0 : cal.Home);
-            double adjAway = fairAway * (cal == default ? 1.0 : cal.Away);
+            _cfg.Get().HomeCalibration.TryGetValue(sport, out var cal);
+            double adjHome = fairHome * (cal?.Home ?? 1.0);
+            double adjAway = fairAway * (cal?.Away ?? 1.0);
             // PoissonService.PredictNoDraw: P(home) = λh / (λh + λa)
             homeLambda = adjHome;
             awayLambda = adjAway;

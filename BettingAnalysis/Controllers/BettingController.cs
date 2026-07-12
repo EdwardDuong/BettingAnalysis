@@ -106,11 +106,34 @@ public class BettingController : ControllerBase
             };
         }
 
+        ScaleStakesToExposureBudget(opportunities, bankroll);
+
         return Ok(opportunities
             .OrderBy(o => o.AiValidation?.Decision == "GOOD_BET" ? 0 : o.AiValidation?.Decision == "RISKY" ? 1 : 2)
             .ThenByDescending(o => o.AiValidation?.Score ?? 0)
             .ThenByDescending(o => o.Edge)
             .ToList());
+    }
+
+    /// <summary>
+    /// Each opportunity's SuggestedStake is computed independently against the same
+    /// AvailableBankroll (see OpportunityPipelineService), as if it were the only bet
+    /// being placed. Taken together, several simultaneously-displayed suggestions can
+    /// sum to more than the exposure budget the account actually has room for — the
+    /// individual numbers aren't wrong, but showing them un-scaled implies you could
+    /// take all of them at face value, which ValidationService's exposure check (Rule
+    /// #8) would then reject at placement time anyway. Scale every suggestion down
+    /// proportionally so the displayed total fits what's actually placeable right now.
+    /// </summary>
+    internal static void ScaleStakesToExposureBudget(List<BetOpportunity> opportunities, Bankroll bankroll)
+    {
+        var remainingBudget = Math.Max(0m, bankroll.MaxExposure - bankroll.TotalExposure);
+        var totalSuggested  = opportunities.Sum(o => o.SuggestedStake);
+        if (totalSuggested <= remainingBudget || totalSuggested <= 0m) return;
+
+        var scale = remainingBudget / totalSuggested;
+        foreach (var opp in opportunities)
+            opp.SuggestedStake = Math.Round(opp.SuggestedStake * scale, 2);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -476,6 +499,19 @@ public class BettingController : ControllerBase
     [HttpGet("stats/sport")]
     public async Task<ActionResult> GetStatsBySport()
         => Ok(await _log.GetStatsBySportAsync(CurrentUserId()));
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GET /Betting/stats/calibration
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns predicted-probability-vs-actual-win-rate buckets for settled bets.
+    /// Use this to sanity-check whether the Poisson/calibration model's probabilities
+    /// are actually predictive, rather than trusting edge/Kelly output on faith.
+    /// </summary>
+    [HttpGet("stats/calibration")]
+    public async Task<ActionResult> GetCalibrationReport()
+        => Ok(await _log.GetCalibrationReportAsync(CurrentUserId()));
 
     // ─────────────────────────────────────────────────────────────────────────
     // GET /Betting/export/csv

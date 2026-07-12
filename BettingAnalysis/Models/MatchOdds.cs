@@ -1,7 +1,7 @@
 namespace BettingAnalysis.Models;
 
-/// <summary>Projection used for per-sport stats aggregation — avoids loading full Bet entities.</summary>
-public record SettledBetSlice(SportType SportType, string Result, decimal PnL, double Edge, double? CLV);
+/// <summary>Projection used for per-sport stats and calibration aggregation — avoids loading full Bet entities.</summary>
+public record SettledBetSlice(SportType SportType, string Result, double Probability, decimal PnL, double Edge, double? CLV);
 
 public enum SportType { EPL, AFL, NRL, NBA, Esports, LaLiga, Bundesliga, SerieA, Ligue1 }
 

@@ -189,6 +189,6 @@ public class BetRepository : IBetRepository
     public async Task<List<BettingAnalysis.Models.SettledBetSlice>> GetSettledSlicesAsync(int userId)
         => await _context.Bets
             .Where(b => b.UserId == userId && b.Result != "Pending")
-            .Select(b => new BettingAnalysis.Models.SettledBetSlice(b.SportType, b.Result, b.PnL, b.Edge, b.CLV))
+            .Select(b => new BettingAnalysis.Models.SettledBetSlice(b.SportType, b.Result, b.Probability, b.PnL, b.Edge, b.CLV))
             .ToListAsync();
 }

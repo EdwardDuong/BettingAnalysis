@@ -170,6 +170,29 @@ public class BettingLoggingService : IBettingLoggingService
             .ToList();
     }
 
+    public async Task<List<object>> GetCalibrationReportAsync(int userId)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var repo   = scope.ServiceProvider.GetRequiredService<IBetRepository>();
+        var slices = await repo.GetSettledSlicesAsync(userId);
+
+        return slices
+            // Decile buckets: 0.95 clamps a 100%-predicted bet into the 90-100% bucket
+            // instead of a lone 100-110% bucket.
+            .GroupBy(s => (int)Math.Min(Math.Floor(s.Probability * 10), 9))
+            .OrderBy(g => g.Key)
+            .Select(g => (object)new
+            {
+                Bucket             = $"{g.Key * 10}-{g.Key * 10 + 10}%",
+                SampleSize         = g.Count(),
+                PredictedAvgPct    = Math.Round(g.Average(s => s.Probability) * 100, 1),
+                ActualWinRatePct   = Math.Round((double)g.Count(s => s.Result == "Win") / g.Count() * 100, 1),
+                GapPct             = Math.Round(
+                    ((double)g.Count(s => s.Result == "Win") / g.Count() - g.Average(s => s.Probability)) * 100, 1),
+            })
+            .ToList();
+    }
+
     // ── Mapping ───────────────────────────────────────────────────────────────
 
     private static Bet MapToEntity(BetHistory d, int userId) => new()

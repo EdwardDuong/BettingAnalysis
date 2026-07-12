@@ -31,4 +31,14 @@ public interface IBettingLoggingService
     Task<decimal> GetTotalStakedAsync(int userId);
     Task<double?> GetAverageEdgeAsync(int userId);
     Task<List<object>> GetStatsBySportAsync(int userId);
+
+    /// <summary>
+    /// Buckets settled bets by predicted-probability decile and reports the actual
+    /// win rate per bucket, so model/AI-score calibration can be checked against real
+    /// outcomes instead of trusted on faith. A well-calibrated model's "60-70%" bucket
+    /// should show an actual win rate near 60-70%; systematic over/under-shoot in a
+    /// bucket is evidence the probability model (or a specific sport's calibration
+    /// factor) is biased in that range.
+    /// </summary>
+    Task<List<object>> GetCalibrationReportAsync(int userId);
 }

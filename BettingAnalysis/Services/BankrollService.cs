@@ -70,12 +70,13 @@ public class BankrollService : IBankrollService
         var state = await GetStateAsync(userId);
         lock (state.Lock)
         {
-            var amount              = newAmount ?? _initialBankroll;
-            state.TotalBankroll     = amount;
-            state.AvailableBankroll = amount;
-            state.DailyLossUsed     = 0;
-            state.CumulativeLoss    = 0;
-            state.LastResetDate     = DateTime.UtcNow.Date;
+            var amount               = newAmount ?? _initialBankroll;
+            state.TotalBankroll      = amount;
+            state.AvailableBankroll  = amount;
+            state.DailyLossUsed      = 0;
+            state.CumulativeLoss     = 0;
+            state.StartOfDayBankroll = amount;
+            state.LastResetDate      = DateTime.UtcNow.Date;
         }
         await SaveSnapshotAsync(userId, state);
     }
@@ -88,6 +89,10 @@ public class BankrollService : IBankrollService
         public decimal  AvailableBankroll;
         public decimal  DailyLossUsed;
         public decimal  CumulativeLoss;
+        /// <summary>Bankroll at the moment today's tracking window began — the fixed
+        /// reference for DailyLossLimit, so the limit doesn't self-tighten as losses
+        /// accrue during the day (see BuildSnapshot).</summary>
+        public decimal  StartOfDayBankroll;
         public DateTime LastResetDate;
         public readonly object Lock = new();
     }
@@ -97,8 +102,16 @@ public class BankrollService : IBankrollService
         TotalBankroll     = s.TotalBankroll,
         AvailableBankroll = s.AvailableBankroll,
         MaxStakePerBet    = s.TotalBankroll * _maxStakePct,
-        DailyLossLimit    = s.TotalBankroll * _dailyLossPct,
+        // Fixed to the bankroll at the start of *today*, not the live, shrinking
+        // TotalBankroll — otherwise "10% daily loss limit" tightens itself further
+        // with every loss instead of staying 10% of what the day started with.
+        // StopLossLimit uses the same fixed-reference convention, pinned to the
+        // account's initial bankroll instead of the current one.
+        DailyLossLimit    = s.StartOfDayBankroll * _dailyLossPct,
         StopLossLimit     = _initialBankroll * _stopLossPct,
+        // MaxExposure is intentionally different: exposure is a live, point-in-time
+        // concept (how much of your *current* capital is at risk right now), not a
+        // cumulative-drawdown concept, so it correctly tracks current TotalBankroll.
         MaxExposure       = s.TotalBankroll * _maxExposurePct,
         DailyLossUsed     = s.DailyLossUsed,
         CumulativeLoss    = s.CumulativeLoss,
@@ -111,7 +124,12 @@ public class BankrollService : IBankrollService
         lock (state.Lock)
         {
             needsReset = state.LastResetDate < DateTime.UtcNow.Date;
-            if (needsReset) { state.DailyLossUsed = 0; state.LastResetDate = DateTime.UtcNow.Date; }
+            if (needsReset)
+            {
+                state.DailyLossUsed      = 0;
+                state.StartOfDayBankroll = state.TotalBankroll;
+                state.LastResetDate      = DateTime.UtcNow.Date;
+            }
         }
         if (needsReset) await SaveSnapshotAsync(userId, state);
     }
@@ -141,23 +159,36 @@ public class BankrollService : IBankrollService
 
         if (latest is not null)
         {
+            var isFromToday = latest.SnapshotDate.Date == DateTime.UtcNow.Date;
             return new BankrollState
             {
                 TotalBankroll     = latest.TotalBankroll,
                 AvailableBankroll = latest.AvailableBankroll,
                 DailyLossUsed     = latest.DailyLossUsed,
                 CumulativeLoss    = latest.CumulativeLoss,
+                // Best-effort reconstruction on cold restart mid-day: the true
+                // start-of-day value isn't persisted, so approximate it by adding
+                // today's realized losses back onto the current total. This
+                // overestimates if there were also wins today (no running total of
+                // today's win profit is persisted) — errs toward a more generous,
+                // not more restrictive, limit, which is the safer direction to be
+                // wrong in. If the snapshot is from a prior day, its TotalBankroll
+                // *is* today's starting point (no bets placed yet today).
+                StartOfDayBankroll = isFromToday
+                    ? latest.TotalBankroll + latest.DailyLossUsed
+                    : latest.TotalBankroll,
                 LastResetDate     = latest.SnapshotDate.Date,
             };
         }
 
         var state = new BankrollState
         {
-            TotalBankroll     = _initialBankroll,
-            AvailableBankroll = _initialBankroll,
-            DailyLossUsed     = 0,
-            CumulativeLoss    = 0,
-            LastResetDate     = DateTime.UtcNow.Date,
+            TotalBankroll      = _initialBankroll,
+            AvailableBankroll  = _initialBankroll,
+            DailyLossUsed      = 0,
+            CumulativeLoss     = 0,
+            StartOfDayBankroll = _initialBankroll,
+            LastResetDate      = DateTime.UtcNow.Date,
         };
         await SaveSnapshotAsync(userId, state);
         return state;

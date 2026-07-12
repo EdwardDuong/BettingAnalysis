@@ -161,6 +161,22 @@ public class BankrollServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task DailyLossLimit_StaysPinnedToStartOfDayBankroll_AsLossesAccrue()
+    {
+        // DailyLossLimit must be a fixed 10% of what the day started with, not a
+        // moving target that shrinks further with every loss recorded that same day.
+        var before = await _service.GetBankrollAsync(TestUserId);
+        before.DailyLossLimit.Should().Be(1_000m); // 10% of the 10,000 starting bankroll
+
+        await _service.ReserveStakeAsync(TestUserId, 500m);
+        await _service.UpdateAfterResultAsync(TestUserId, 500m, 2.0m, "Loss");
+
+        var after = await _service.GetBankrollAsync(TestUserId);
+        after.TotalBankroll.Should().Be(9_500m, "the loss should still reduce the live bankroll");
+        after.DailyLossLimit.Should().Be(1_000m, "the limit must stay pinned to the start-of-day bankroll, not shrink with TotalBankroll");
+    }
+
+    [Fact]
     public async Task DifferentUsers_HaveIndependentBankrolls()
     {
         const int otherUserId = 2;

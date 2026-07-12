@@ -74,4 +74,32 @@ public class BettingConfig
     // ── Line movement ─────────────────────────────────────────────────────────
     /// <summary>Rule: Block bets when odds are drifting against prediction.</summary>
     public bool RequireLineMovementCheck { get; set; } = true;
+
+    // ── Non-soccer home-advantage calibration ─────────────────────────────────
+    /// <summary>
+    /// Home-advantage calibration multiplier per non-soccer sport, applied by
+    /// TheOddsApiService to the de-vigged market-implied win probability to produce
+    /// the model's probability. Without this, model probability equals the de-vigged
+    /// market probability exactly, so edge is always ≤ 0 by construction — these
+    /// factors are what let the model diverge from the market at all for these sports.
+    ///
+    /// Values below are placeholders (approximate historical home-win-rate vs
+    /// market-implied gap per sport) — live-editable here specifically so they can
+    /// be corrected without a code deploy as real settled-bet data accumulates.
+    /// Cross-check against GET /Betting/stats/calibration before trusting them.
+    /// </summary>
+    public Dictionary<SportType, HomeAwayCalibration> HomeCalibration { get; set; } = new()
+    {
+        [SportType.AFL]     = new HomeAwayCalibration { Home = 1.08, Away = 0.93 },
+        [SportType.NRL]     = new HomeAwayCalibration { Home = 1.06, Away = 0.95 },
+        [SportType.NBA]     = new HomeAwayCalibration { Home = 1.09, Away = 0.92 },
+        [SportType.Esports] = new HomeAwayCalibration { Home = 1.04, Away = 0.97 },
+    };
+}
+
+/// <summary>Per-sport multiplier applied to de-vigged home/away market probability.</summary>
+public class HomeAwayCalibration
+{
+    public double Home { get; set; } = 1.0;
+    public double Away { get; set; } = 1.0;
 }
