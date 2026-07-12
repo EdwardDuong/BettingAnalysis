@@ -25,7 +25,7 @@ public static class DataSeeder
         if (existing is null)
         {
             // If the table is empty, reset the identity counter so admin always gets Id = 1.
-            // BankrollService and BettingLoggingService hardcode DefaultUserId = 1.
+            // BankrollHealthCheck uses Id = 1 as its system-level proxy user (see Program.cs).
             var anyUser = await db.Users.AnyAsync();
             if (!anyUser)
                 await db.Database.ExecuteSqlRawAsync("DBCC CHECKIDENT ('[Users]', RESEED, 0)");

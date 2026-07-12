@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using BettingAnalysis.Data.Entities;
 using BettingAnalysis.Interfaces;
 using BettingAnalysis.Models;
@@ -7,52 +8,51 @@ namespace BettingAnalysis.Services;
 public class BettingLoggingService : IBettingLoggingService
 {
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly List<RejectedBet>    _rejected = new();
-    private readonly object               _lock     = new();
-    private const int DefaultUserId = 1;
+    private readonly ConcurrentDictionary<int, List<RejectedBet>> _rejected = new();
+    private readonly object _rejectedLock = new();
 
     public BettingLoggingService(IServiceScopeFactory scopeFactory)
         => _scopeFactory = scopeFactory;
 
     // ── Placed bets ───────────────────────────────────────────────────────────
 
-    public async Task LogBetAsync(BetHistory bet)
+    public async Task LogBetAsync(int userId, BetHistory bet)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-        await repo.AddAsync(MapToEntity(bet));
+        await repo.AddAsync(MapToEntity(bet, userId));
     }
 
-    public async Task<List<BetHistory>> GetHistoryAsync()
+    public async Task<List<BetHistory>> GetHistoryAsync(int userId)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-        var bets = await repo.GetAllAsync(DefaultUserId);
+        var bets = await repo.GetAllAsync(userId);
         return bets.Select(MapToDomain).ToList();
     }
 
-    public async Task<(List<BetHistory> Items, int Total)> GetHistoryPagedAsync(int page, int pageSize)
+    public async Task<(List<BetHistory> Items, int Total)> GetHistoryPagedAsync(int userId, int page, int pageSize)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var repo            = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-        var (bets, total)   = await repo.GetPagedAsync(DefaultUserId, page, pageSize);
+        var (bets, total)   = await repo.GetPagedAsync(userId, page, pageSize);
         return (bets.Select(MapToDomain).ToList(), total);
     }
 
-    public async Task<BetHistory?> GetByIdAsync(Guid id)
+    public async Task<BetHistory?> GetByIdAsync(Guid id, int userId)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
         var bet = await repo.GetByIdAsync(id);
-        return bet is null ? null : MapToDomain(bet);
+        return bet is null || bet.UserId != userId ? null : MapToDomain(bet);
     }
 
-    public async Task UpdateResultAsync(Guid id, string result, decimal pnl, decimal? closingOdds, double? clv)
+    public async Task UpdateResultAsync(Guid id, int userId, string result, decimal pnl, decimal? closingOdds, double? clv)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
         var bet  = await repo.GetByIdAsync(id);
-        if (bet is null) return;
+        if (bet is null || bet.UserId != userId) return;
 
         bet.Result      = result;
         bet.PnL         = pnl;
@@ -62,12 +62,15 @@ public class BettingLoggingService : IBettingLoggingService
     }
 
     // ── Rejected bets ─────────────────────────────────────────────────────────
+    // In-memory only (not persisted) — acceptable to lose on restart, but must
+    // still be scoped per user so one user can't see another's rejection log.
 
-    public void LogRejected(string matchId, string team, string outcome, List<string> reasons)
+    public void LogRejected(int userId, string matchId, string team, string outcome, List<string> reasons)
     {
-        lock (_lock)
+        lock (_rejectedLock)
         {
-            _rejected.Add(new RejectedBet
+            var list = _rejected.GetOrAdd(userId, _ => new List<RejectedBet>());
+            list.Add(new RejectedBet
             {
                 MatchId   = matchId,
                 Team      = team,
@@ -78,71 +81,76 @@ public class BettingLoggingService : IBettingLoggingService
         }
     }
 
-    public List<RejectedBet> GetRejected()
+    public List<RejectedBet> GetRejected(int userId)
     {
-        lock (_lock) { return _rejected.OrderByDescending(r => r.Timestamp).ToList(); }
+        lock (_rejectedLock)
+        {
+            return _rejected.TryGetValue(userId, out var list)
+                ? list.OrderByDescending(r => r.Timestamp).ToList()
+                : new List<RejectedBet>();
+        }
     }
 
     // ── Computed stats used by ValidationService ───────────────────────────────
 
-    public async Task<decimal> GetTotalExposureAsync()
+    public async Task<decimal> GetTotalExposureAsync(int userId)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-        return await repo.GetTotalExposureAsync(DefaultUserId);
+        return await repo.GetTotalExposureAsync(userId);
     }
 
-    public async Task<int> CountBetsOnMatchAsync(string matchId)
+    public async Task<int> CountBetsOnMatchAsync(int userId, string matchId)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-        return await repo.CountBetsOnMatchAsync(matchId, DefaultUserId);
+        return await repo.CountBetsOnMatchAsync(matchId, userId);
     }
 
-    public async Task<int> GetConsecutiveLossesAsync()
+    public async Task<int> GetConsecutiveLossesAsync(int userId)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-        return await repo.GetConsecutiveLossesAsync(DefaultUserId);
+        return await repo.GetConsecutiveLossesAsync(userId);
     }
 
-    public async Task<int> GetCurrentStreakAsync()
+    public async Task<int> GetCurrentStreakAsync(int userId)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-        return await repo.GetCurrentStreakAsync(DefaultUserId);
+        return await repo.GetCurrentStreakAsync(userId);
     }
 
     // ── Aggregate stats used by BettingController ─────────────────────────────
 
-    public async Task<(int Total, int Wins, int Losses, decimal TotalPnL, double? AvgCLV)> GetStatsAsync()
+    public async Task<(int Total, int Wins, int Losses, decimal TotalPnL, double? AvgCLV)> GetStatsAsync(int userId)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-        var (total, wins, losses, pnl, avgClv) = await repo.GetSettledStatsAsync(DefaultUserId);
+        var (total, wins, losses, pnl, avgClv) = await repo.GetSettledStatsAsync(userId);
         return (total, wins, losses, pnl, avgClv > 0 ? avgClv : (double?)null);
     }
 
-    public async Task<decimal> GetTotalStakedAsync()
+    public async Task<decimal> GetTotalStakedAsync(int userId)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-        return await repo.GetTotalStakedAsync(DefaultUserId);
+        return await repo.GetTotalStakedAsync(userId);
     }
 
-    public async Task<double?> GetAverageEdgeAsync()
+    public async Task<double?> GetAverageEdgeAsync(int userId)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-        var avg  = await repo.GetAverageEdgeAsync(DefaultUserId);
+        var avg  = await repo.GetAverageEdgeAsync(userId);
         return avg.HasValue ? Math.Round(avg.Value * 100, 2) : null;
     }
 
-    public async Task<List<object>> GetStatsBySportAsync()
+    public async Task<List<object>> GetStatsBySportAsync(int userId)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var repo   = scope.ServiceProvider.GetRequiredService<IBetRepository>();
-        var slices = await repo.GetSettledSlicesAsync(DefaultUserId);
+        var slices = await repo.GetSettledSlicesAsync(userId);
 
         return slices
             .GroupBy(b => b.SportType.ToString())
@@ -164,9 +172,9 @@ public class BettingLoggingService : IBettingLoggingService
 
     // ── Mapping ───────────────────────────────────────────────────────────────
 
-    private static Bet MapToEntity(BetHistory d) => new()
+    private static Bet MapToEntity(BetHistory d, int userId) => new()
     {
-        Id = d.Id, UserId = DefaultUserId, MatchId = d.MatchId,
+        Id = d.Id, UserId = userId, MatchId = d.MatchId,
         HomeTeam = d.HomeTeam, AwayTeam = d.AwayTeam, Team = d.Team,
         Outcome = d.Outcome, Odds = d.Odds, ClosingOdds = d.ClosingOdds,
         CLV = d.CLV, Probability = d.Probability, Edge = d.Edge,

@@ -89,4 +89,24 @@ public class BetSizingServiceTests
 
         stake.Should().Be(300m);
     }
+
+    [Fact]
+    public void CalculateStake_WithOddsAtOne_ReturnsZeroInsteadOfThrowing()
+    {
+        // b = odds - 1 = 0, so full Kelly (probability*b - q)/b divides by zero and
+        // produces NaN, which throws OverflowException when cast from double to decimal.
+        var stake = _service.CalculateStake(0.60, 1.00m, 10_000m);
+
+        stake.Should().Be(0m);
+    }
+
+    [Fact]
+    public void CalculateStake_WithOddsBelowOne_ReturnsZeroInsteadOfThrowing()
+    {
+        // Malformed odds data (< 1.0) should never reach here in practice, but the
+        // service must not crash on it — b is negative, Kelly is undefined.
+        var stake = _service.CalculateStake(0.60, 0.50m, 10_000m);
+
+        stake.Should().Be(0m);
+    }
 }

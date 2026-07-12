@@ -4,6 +4,6 @@ namespace BettingAnalysis.Interfaces;
 
 public interface IOddsService
 {
-    List<MatchOdds> GetPreMatchOdds();
+    Task<List<MatchOdds>> GetPreMatchOddsAsync();
     void InvalidateCache();
 }

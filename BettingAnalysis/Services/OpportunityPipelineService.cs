@@ -31,10 +31,10 @@ public class OpportunityPipelineService : IOpportunityPipelineService
         _cfg          = cfg;
     }
 
-    public async Task<List<BetOpportunity>> BuildOpportunitiesAsync(Bankroll bankroll)
+    public async Task<List<BetOpportunity>> BuildOpportunitiesAsync(int userId, Bankroll bankroll)
     {
         var config   = _cfg.Get();
-        var preMatch = _odds.GetPreMatchOdds();
+        var preMatch = await _odds.GetPreMatchOddsAsync();
         var opps     = new List<BetOpportunity>();
         var now      = DateTime.UtcNow;
 
@@ -48,7 +48,7 @@ public class OpportunityPipelineService : IOpportunityPipelineService
                 var movement   = _lineMovement.GetMovement(odds, prevOdds);
                 var hoursUntil = (match.MatchStartTime - now).TotalHours;
                 var stake      = Math.Min(_sizing.CalculateStake(prob, odds, bankroll.AvailableBankroll), bankroll.MaxStakePerBet);
-                var preCheck   = await _validation.ValidateAsync(match, team, odds, edgeVal, stake, movement);
+                var preCheck   = await _validation.ValidateAsync(userId, match, team, odds, edgeVal, stake, movement);
 
                 opps.Add(new BetOpportunity
                 {
@@ -77,10 +77,10 @@ public class OpportunityPipelineService : IOpportunityPipelineService
         return opps;
     }
 
-    public Task<List<BetOpportunity>> BuildParlayPoolAsync(Bankroll bankroll)
+    public async Task<List<BetOpportunity>> BuildParlayPoolAsync(Bankroll bankroll)
     {
         var config   = _cfg.Get();
-        var preMatch = _odds.GetPreMatchOdds();
+        var preMatch = await _odds.GetPreMatchOddsAsync();
         var opps     = new List<BetOpportunity>();
         var now      = DateTime.UtcNow;
 
@@ -118,7 +118,7 @@ public class OpportunityPipelineService : IOpportunityPipelineService
             }
         }
 
-        return Task.FromResult(opps);
+        return opps;
     }
 
     private static IEnumerable<(string Outcome, string Team, decimal Odds, decimal? PrevOdds, double Prob)>

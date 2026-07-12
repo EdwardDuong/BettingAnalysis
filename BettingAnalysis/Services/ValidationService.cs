@@ -23,6 +23,7 @@ public class ValidationService : IValidationService
     }
 
     public async Task<ValidationResult> ValidateAsync(
+        int          userId,
         MatchOdds    match,
         string       team,
         decimal      odds,
@@ -35,10 +36,10 @@ public class ValidationService : IValidationService
         var now      = DateTime.UtcNow;
         var hoursUntil = (match.MatchStartTime - now).TotalHours;
 
-        var bankroll         = await _bankroll.GetBankrollAsync();
-        var exposure         = await _log.GetTotalExposureAsync();
-        var betsOnMatch      = await _log.CountBetsOnMatchAsync(match.MatchId);
-        var consecutiveLosses = await _log.GetConsecutiveLossesAsync();
+        var bankroll         = await _bankroll.GetBankrollAsync(userId);
+        var exposure         = await _log.GetTotalExposureAsync(userId);
+        var betsOnMatch      = await _log.CountBetsOnMatchAsync(userId, match.MatchId);
+        var consecutiveLosses = await _log.GetConsecutiveLossesAsync(userId);
 
         // ── 1. Timing window ──────────────────────────────────────────────────
         if (hoursUntil < config.PreMatchMinHours)

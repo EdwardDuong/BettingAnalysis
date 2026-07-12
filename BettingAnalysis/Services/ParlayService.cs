@@ -20,7 +20,6 @@ namespace BettingAnalysis.Services;
 /// </summary>
 public class ParlayService : IParlayService
 {
-    private readonly IBankrollService      _bankroll;
     private readonly IBettingConfigService _cfg;
 
     private const int     MinLegs         = 3;
@@ -28,16 +27,14 @@ public class ParlayService : IParlayService
     private const int     MaxEligible     = 25;
     private const decimal MinCombinedOdds = 3.0m;
 
-    public ParlayService(IBankrollService bankroll, IBettingConfigService cfg)
+    public ParlayService(IBettingConfigService cfg)
     {
-        _bankroll = bankroll;
-        _cfg      = cfg;
+        _cfg = cfg;
     }
 
-    public async Task<List<ParlayCombo>> BuildCombosAsync(List<BetOpportunity> opportunities)
+    public Task<List<ParlayCombo>> BuildCombosAsync(List<BetOpportunity> opportunities, Bankroll bankroll)
     {
-        var config   = _cfg.Get();
-        var bankroll = await _bankroll.GetBankrollAsync();
+        var config = _cfg.Get();
 
         var baseEligible = opportunities
             .Where(o => o.AiValidation?.Decision != "SKIP"
@@ -47,7 +44,7 @@ public class ParlayService : IParlayService
             .Take(MaxEligible)
             .ToList();
 
-        if (baseEligible.Count < MinLegs) return [];
+        if (baseEligible.Count < MinLegs) return Task.FromResult(new List<ParlayCombo>());
 
         var goodBet       = baseEligible.Where(o => o.AiValidation?.Decision == "GOOD_BET").ToList();
         var goodBetScore7 = goodBet.Where(o => (o.AiValidation?.Score ?? 0) >= 7).ToList();
@@ -92,7 +89,7 @@ public class ParlayService : IParlayService
             if (combo is not null) combos.Add(combo);
         }
 
-        return combos;
+        return Task.FromResult(combos);
     }
 
     private static ParlayCombo? BuildBestCombo(

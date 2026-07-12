@@ -271,6 +271,11 @@ public partial class Program { }
 // ── Custom health check: bankroll still above 50% ─────────────────────────────
 public class BankrollHealthCheck : IHealthCheck
 {
+    // Bankroll state is now per-user, so a global health check can't reflect every
+    // user's bankroll. We use the seeded default admin account (Id = 1, guaranteed
+    // to exist — see DataSeeder) as a system-level proxy rather than dropping the check.
+    private const int ProxyUserId = 1;
+
     private readonly IBankrollService _bankrollService;
 
     public BankrollHealthCheck(IBankrollService bankrollService)
@@ -282,7 +287,7 @@ public class BankrollHealthCheck : IHealthCheck
         HealthCheckContext context,
         CancellationToken cancellationToken = default)
     {
-        var b       = await _bankrollService.GetBankrollAsync();
+        var b       = await _bankrollService.GetBankrollAsync(ProxyUserId);
         var initial = b.TotalBankroll + b.CumulativeLoss;
         if (initial <= 0) initial = b.TotalBankroll;
 

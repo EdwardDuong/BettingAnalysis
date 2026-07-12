@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using BettingAnalysis.Data.Entities;
 using BettingAnalysis.Interfaces;
 using BettingAnalysis.Models;
@@ -13,14 +14,11 @@ public class BankrollService : IBankrollService
     private readonly decimal _stopLossPct;
     private readonly decimal _maxExposurePct;
 
-    private decimal  _totalBankroll;
-    private decimal  _availableBankroll;
-    private decimal  _dailyLossUsed;
-    private decimal  _cumulativeLoss;
-    private DateTime _lastResetDate;
-
-    private readonly object _lock = new();
-    private const int DefaultUserId = 1;
+    // Per-user mutable bankroll state. Loaded lazily on first access per user
+    // rather than eagerly at startup, since this is a Singleton shared across
+    // every authenticated user's requests.
+    private readonly ConcurrentDictionary<int, BankrollState> _states = new();
+    private readonly SemaphoreSlim _loadLock = new(1, 1);
 
     public BankrollService(IServiceScopeFactory scopeFactory, IConfiguration config)
     {
@@ -30,121 +28,150 @@ public class BankrollService : IBankrollService
         _dailyLossPct    = config.GetValue<decimal>("BettingSettings:DailyLossLimitPercent", 0.10m);
         _stopLossPct     = config.GetValue<decimal>("BettingSettings:StopLossPercent", 0.20m);
         _maxExposurePct  = config.GetValue<decimal>("BettingSettings:MaxExposurePercent", 0.10m);
-
-        // Blocking only here at startup — no request context exists yet, so no deadlock risk.
-        LoadLatestSnapshot();
     }
 
-    public async Task<Bankroll> GetBankrollAsync()
+    public async Task<Bankroll> GetBankrollAsync(int userId)
     {
-        await ResetDailyIfNeededAsync();
-        lock (_lock)
-        {
-            return BuildSnapshot();
-        }
+        var state = await GetStateAsync(userId);
+        await ResetDailyIfNeededAsync(userId, state);
+        lock (state.Lock) { return BuildSnapshot(state); }
     }
 
-    public async Task ReserveStakeAsync(decimal stake)
+    public async Task ReserveStakeAsync(int userId, decimal stake)
     {
-        lock (_lock) { _availableBankroll -= stake; }
-        await SaveSnapshotAsync();
+        var state = await GetStateAsync(userId);
+        lock (state.Lock) { state.AvailableBankroll -= stake; }
+        await SaveSnapshotAsync(userId, state);
     }
 
-    public async Task UpdateAfterResultAsync(decimal stake, decimal odds, string result)
+    public async Task UpdateAfterResultAsync(int userId, decimal stake, decimal odds, string result)
     {
-        lock (_lock)
+        var state = await GetStateAsync(userId);
+        lock (state.Lock)
         {
             if (result == "Win")
             {
-                decimal profit     = stake * (odds - 1m);
-                _availableBankroll += stake + profit;
-                _totalBankroll     += profit;
+                decimal profit          = stake * (odds - 1m);
+                state.AvailableBankroll += stake + profit;
+                state.TotalBankroll     += profit;
             }
             else
             {
-                _dailyLossUsed  += stake;
-                _cumulativeLoss += stake;
-                _totalBankroll  -= stake;
+                state.DailyLossUsed  += stake;
+                state.CumulativeLoss += stake;
+                state.TotalBankroll  -= stake;
             }
         }
-        await SaveSnapshotAsync();
+        await SaveSnapshotAsync(userId, state);
     }
 
-    public async Task ResetAsync(decimal? newAmount = null)
+    public async Task ResetAsync(int userId, decimal? newAmount = null)
     {
-        lock (_lock)
+        var state = await GetStateAsync(userId);
+        lock (state.Lock)
         {
-            var amount         = newAmount ?? _initialBankroll;
-            _totalBankroll     = amount;
-            _availableBankroll = amount;
-            _dailyLossUsed     = 0;
-            _cumulativeLoss    = 0;
-            _lastResetDate     = DateTime.UtcNow.Date;
+            var amount              = newAmount ?? _initialBankroll;
+            state.TotalBankroll     = amount;
+            state.AvailableBankroll = amount;
+            state.DailyLossUsed     = 0;
+            state.CumulativeLoss    = 0;
+            state.LastResetDate     = DateTime.UtcNow.Date;
         }
-        await SaveSnapshotAsync();
+        await SaveSnapshotAsync(userId, state);
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────
 
-    private Bankroll BuildSnapshot() => new()
+    private sealed class BankrollState
     {
-        TotalBankroll     = _totalBankroll,
-        AvailableBankroll = _availableBankroll,
-        MaxStakePerBet    = _totalBankroll * _maxStakePct,
-        DailyLossLimit    = _totalBankroll * _dailyLossPct,
-        StopLossLimit     = _initialBankroll * _stopLossPct,
-        MaxExposure       = _totalBankroll * _maxExposurePct,
-        DailyLossUsed     = _dailyLossUsed,
-        CumulativeLoss    = _cumulativeLoss,
-        LastResetDate     = _lastResetDate,
-    };
-
-    private async Task ResetDailyIfNeededAsync()
-    {
-        bool needsReset;
-        lock (_lock)
-        {
-            needsReset = _lastResetDate < DateTime.UtcNow.Date;
-            if (needsReset) { _dailyLossUsed = 0; _lastResetDate = DateTime.UtcNow.Date; }
-        }
-        if (needsReset) await SaveSnapshotAsync();
+        public decimal  TotalBankroll;
+        public decimal  AvailableBankroll;
+        public decimal  DailyLossUsed;
+        public decimal  CumulativeLoss;
+        public DateTime LastResetDate;
+        public readonly object Lock = new();
     }
 
-    private void LoadLatestSnapshot()
+    private Bankroll BuildSnapshot(BankrollState s) => new()
     {
-        using var scope = _scopeFactory.CreateScope();
-        var repo        = scope.ServiceProvider.GetRequiredService<IBankrollSnapshotRepository>();
+        TotalBankroll     = s.TotalBankroll,
+        AvailableBankroll = s.AvailableBankroll,
+        MaxStakePerBet    = s.TotalBankroll * _maxStakePct,
+        DailyLossLimit    = s.TotalBankroll * _dailyLossPct,
+        StopLossLimit     = _initialBankroll * _stopLossPct,
+        MaxExposure       = s.TotalBankroll * _maxExposurePct,
+        DailyLossUsed     = s.DailyLossUsed,
+        CumulativeLoss    = s.CumulativeLoss,
+        LastResetDate     = s.LastResetDate,
+    };
 
-        var latest = repo.GetLatestSnapshotAsync(DefaultUserId).GetAwaiter().GetResult();
+    private async Task ResetDailyIfNeededAsync(int userId, BankrollState state)
+    {
+        bool needsReset;
+        lock (state.Lock)
+        {
+            needsReset = state.LastResetDate < DateTime.UtcNow.Date;
+            if (needsReset) { state.DailyLossUsed = 0; state.LastResetDate = DateTime.UtcNow.Date; }
+        }
+        if (needsReset) await SaveSnapshotAsync(userId, state);
+    }
+
+    /// <summary>Returns the in-memory state for a user, loading it from the latest DB snapshot on first access.</summary>
+    private async Task<BankrollState> GetStateAsync(int userId)
+    {
+        if (_states.TryGetValue(userId, out var existing)) return existing;
+
+        await _loadLock.WaitAsync();
+        try
+        {
+            if (_states.TryGetValue(userId, out existing)) return existing;
+
+            var state = await LoadStateAsync(userId);
+            _states[userId] = state;
+            return state;
+        }
+        finally { _loadLock.Release(); }
+    }
+
+    private async Task<BankrollState> LoadStateAsync(int userId)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var repo             = scope.ServiceProvider.GetRequiredService<IBankrollSnapshotRepository>();
+        var latest            = await repo.GetLatestSnapshotAsync(userId);
 
         if (latest is not null)
         {
-            _totalBankroll     = latest.TotalBankroll;
-            _availableBankroll = latest.AvailableBankroll;
-            _dailyLossUsed     = latest.DailyLossUsed;
-            _cumulativeLoss    = latest.CumulativeLoss;
-            _lastResetDate     = latest.SnapshotDate.Date;
+            return new BankrollState
+            {
+                TotalBankroll     = latest.TotalBankroll,
+                AvailableBankroll = latest.AvailableBankroll,
+                DailyLossUsed     = latest.DailyLossUsed,
+                CumulativeLoss    = latest.CumulativeLoss,
+                LastResetDate     = latest.SnapshotDate.Date,
+            };
         }
-        else
+
+        var state = new BankrollState
         {
-            _totalBankroll     = _initialBankroll;
-            _availableBankroll = _initialBankroll;
-            _dailyLossUsed     = 0;
-            _cumulativeLoss    = 0;
-            _lastResetDate     = DateTime.UtcNow.Date;
-            SaveSnapshotAsync().GetAwaiter().GetResult(); // Only blocks once at first startup
-        }
+            TotalBankroll     = _initialBankroll,
+            AvailableBankroll = _initialBankroll,
+            DailyLossUsed     = 0,
+            CumulativeLoss    = 0,
+            LastResetDate     = DateTime.UtcNow.Date,
+        };
+        await SaveSnapshotAsync(userId, state);
+        return state;
     }
 
-    private async Task SaveSnapshotAsync()
+    private async Task SaveSnapshotAsync(int userId, BankrollState state)
     {
         decimal total, available, dailyLoss, cumLoss;
-        lock (_lock)
+        lock (state.Lock)
         {
-            total     = _totalBankroll;
-            available = _availableBankroll;
-            dailyLoss = _dailyLossUsed;
-            cumLoss   = _cumulativeLoss;
+            total     = state.TotalBankroll;
+            available = state.AvailableBankroll;
+            dailyLoss = state.DailyLossUsed;
+            cumLoss   = state.CumulativeLoss;
         }
 
         await using var scope   = _scopeFactory.CreateAsyncScope();
@@ -152,13 +179,13 @@ public class BankrollService : IBankrollService
         var betRepo             = scope.ServiceProvider.GetRequiredService<IBetRepository>();
 
         // Aggregate queries — no full table fetch
-        var (betsTotal, wins, losses, pnl, avgCLV) = await betRepo.GetSettledStatsAsync(DefaultUserId);
-        var exposure     = await betRepo.GetTotalExposureAsync(DefaultUserId);
-        var consecLosses = await betRepo.GetConsecutiveLossesAsync(DefaultUserId);
+        var (betsTotal, wins, losses, pnl, avgCLV) = await betRepo.GetSettledStatsAsync(userId);
+        var exposure     = await betRepo.GetTotalExposureAsync(userId);
+        var consecLosses = await betRepo.GetConsecutiveLossesAsync(userId);
 
         await repo.AddAsync(new BankrollSnapshot
         {
-            UserId            = DefaultUserId,
+            UserId            = userId,
             TotalBankroll     = total,
             AvailableBankroll = available,
             TotalExposure     = exposure,

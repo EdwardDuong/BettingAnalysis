@@ -109,6 +109,14 @@ public class AuthService : IAuthService
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
         await _users.UpdateAsync(user);
 
+        // Revoke all existing sessions — if the password change was prompted by a
+        // compromised credential, any refresh token issued before this point must die too.
+        var activeTokens = await _db.RefreshTokens
+            .Where(t => t.UserId == userId && !t.IsRevoked)
+            .ToListAsync();
+        foreach (var t in activeTokens) t.IsRevoked = true;
+        await _db.SaveChangesAsync();
+
         return new AuthResult(true);
     }
 

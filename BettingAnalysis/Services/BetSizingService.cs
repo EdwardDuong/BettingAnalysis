@@ -15,6 +15,8 @@ public class BetSizingService : IBetSizingService
     {
         var config = _cfg.Get();
         double b = (double)odds - 1.0;
+        if (b <= 0) return 0m; // odds <= 1.0 (no payout margin) — Kelly is undefined, not just unprofitable
+
         double q = 1.0 - probability;
         double fullKelly = (probability * b - q) / b;
 

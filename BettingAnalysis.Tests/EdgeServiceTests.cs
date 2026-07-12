@@ -40,10 +40,11 @@ public class EdgeServiceTests
     }
 
     [Fact]
-    public void Edge_equals_model_minus_implied_probability()
+    public void Edge_equals_expected_value_not_probability_gap()
     {
-        // odds = 2.00 → implied = 0.50; model = 0.70 → edge = 0.20
+        // EV = model * odds - 1 (not model - implied): 0.70 * 2.00 - 1 = 0.40
+        // See EdgeService's class doc for why EV, not probability gap, is used.
         var edge = _sut.CalculateEdge(0.70, 2.00m);
-        Assert.InRange(edge, 0.199, 0.201);
+        Assert.InRange(edge, 0.399, 0.401);
     }
 }

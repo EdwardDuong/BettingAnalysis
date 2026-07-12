@@ -86,12 +86,13 @@ public class BettingController : ControllerBase
     [HttpGet("opportunities")]
     public async Task<ActionResult<List<BetOpportunity>>> GetOpportunities()
     {
-        var bankroll = await EnrichedBankrollAsync();
+        var userId   = CurrentUserId();
+        var bankroll = await EnrichedBankrollAsync(userId);
         if (bankroll.IsStopLossTriggered)
             return Ok(new List<BetOpportunity>());
 
         var config       = _cfg.Get();
-        var opportunities = await _pipeline.BuildOpportunitiesAsync(bankroll);
+        var opportunities = await _pipeline.BuildOpportunitiesAsync(userId, bankroll);
 
         var validated = _aiValidator.Validate(opportunities);
         foreach (var opp in opportunities)
@@ -120,7 +121,8 @@ public class BettingController : ControllerBase
     [Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("place-bet")]
     public async Task<ActionResult<object>> PlaceBet([FromBody] PlaceBetRequest request)
     {
-        var preMatch = _odds.GetPreMatchOdds();
+        var userId   = CurrentUserId();
+        var preMatch = await _odds.GetPreMatchOddsAsync();
         var match    = preMatch.FirstOrDefault(m => m.MatchId == request.MatchId);
         if (match is null)
             return NotFound($"Match '{request.MatchId}' not found or outside the betting window.");
@@ -146,20 +148,20 @@ public class BettingController : ControllerBase
             request.Outcome == "Home" ? match.PreviousHomeOdds :
             request.Outcome == "Away" ? match.PreviousAwayOdds : match.PreviousDrawOdds);
 
-        var bankroll = await EnrichedBankrollAsync();
+        var bankroll = await EnrichedBankrollAsync(userId);
         var stake    = Math.Min(
             request.CustomStake ?? _sizing.CalculateStake(prob, odds, bankroll.AvailableBankroll),
             bankroll.MaxStakePerBet);
 
-        var vResult = await _validation.ValidateAsync(match, team, odds, edgeVal, stake, movement);
+        var vResult = await _validation.ValidateAsync(userId, match, team, odds, edgeVal, stake, movement);
 
         if (!vResult.IsValid)
         {
-            _log.LogRejected(match.MatchId, team, request.Outcome, vResult.Violations);
+            _log.LogRejected(userId, match.MatchId, team, request.Outcome, vResult.Violations);
             return BadRequest(new { Violations = vResult.Violations, Warnings = vResult.Warnings });
         }
 
-        await _bankroll.ReserveStakeAsync(stake);
+        await _bankroll.ReserveStakeAsync(userId, stake);
 
         var bet = new BetHistory
         {
@@ -178,7 +180,7 @@ public class BettingController : ControllerBase
             LineMovementStatus = movement.ToString(),
         };
 
-        await _log.LogBetAsync(bet);
+        await _log.LogBetAsync(userId, bet);
 
         return Ok(new
         {
@@ -202,7 +204,7 @@ public class BettingController : ControllerBase
         page     = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
 
-        var (items, total) = await _log.GetHistoryPagedAsync(page, pageSize);
+        var (items, total) = await _log.GetHistoryPagedAsync(CurrentUserId(), page, pageSize);
 
         Response.Headers["X-Total-Count"]  = total.ToString();
         Response.Headers["X-Page"]         = page.ToString();
@@ -218,7 +220,7 @@ public class BettingController : ControllerBase
 
     [HttpGet("bankroll")]
     public async Task<ActionResult<Bankroll>> GetBankroll()
-        => Ok(await EnrichedBankrollAsync());
+        => Ok(await EnrichedBankrollAsync(CurrentUserId()));
 
     // ─────────────────────────────────────────────────────────────────────────
     // POST /Betting/result/{id}
@@ -232,7 +234,8 @@ public class BettingController : ControllerBase
     [HttpPost("result/{id}")]
     public async Task<ActionResult> UpdateResult(Guid id, [FromBody] UpdateResultRequest request)
     {
-        var bet = await _log.GetByIdAsync(id);
+        var userId = CurrentUserId();
+        var bet = await _log.GetByIdAsync(id, userId);
         if (bet is null)             return NotFound($"Bet {id} not found.");
         if (bet.Result != "Pending") return BadRequest("Result already recorded.");
 
@@ -242,10 +245,10 @@ public class BettingController : ControllerBase
         if (request.ClosingOdds.HasValue && request.ClosingOdds.Value > 0)
             clvValue = Math.Round(_clv.CalculateCLV(bet.Odds, request.ClosingOdds.Value), 2);
 
-        await _log.UpdateResultAsync(id, request.Result, pnl, request.ClosingOdds, clvValue);
-        await _bankroll.UpdateAfterResultAsync(bet.Stake, bet.Odds, request.Result);
+        await _log.UpdateResultAsync(id, userId, request.Result, pnl, request.ClosingOdds, clvValue);
+        await _bankroll.UpdateAfterResultAsync(userId, bet.Stake, bet.Odds, request.Result);
 
-        await _hub.Clients.All.SendAsync("BankrollUpdated", await EnrichedBankrollAsync());
+        await _hub.Clients.All.SendAsync("BankrollUpdated", await EnrichedBankrollAsync(userId));
 
         return Ok(new
         {
@@ -264,10 +267,11 @@ public class BettingController : ControllerBase
     [HttpGet("stats")]
     public async Task<ActionResult> GetStats()
     {
-        var statsTask   = _log.GetStatsAsync();
-        var streakTask  = _log.GetCurrentStreakAsync();
-        var stakedTask  = _log.GetTotalStakedAsync();
-        var edgeTask    = _log.GetAverageEdgeAsync();
+        var userId      = CurrentUserId();
+        var statsTask   = _log.GetStatsAsync(userId);
+        var streakTask  = _log.GetCurrentStreakAsync(userId);
+        var stakedTask  = _log.GetTotalStakedAsync(userId);
+        var edgeTask    = _log.GetAverageEdgeAsync(userId);
         await Task.WhenAll(statsTask, streakTask, stakedTask, edgeTask);
 
         var (total, wins, losses, totalPnL, avgCLV) = statsTask.Result;
@@ -299,7 +303,7 @@ public class BettingController : ControllerBase
     // ─────────────────────────────────────────────────────────────────────────
 
     [HttpGet("rejected")]
-    public ActionResult GetRejected() => Ok(_log.GetRejected());
+    public ActionResult GetRejected() => Ok(_log.GetRejected(CurrentUserId()));
 
     // ─────────────────────────────────────────────────────────────────────────
     // GET /Betting/settings
@@ -354,9 +358,9 @@ public class BettingController : ControllerBase
     /// Useful for manually verifying the model before placing a bet.
     /// </summary>
     [HttpGet("prediction/{matchId}")]
-    public ActionResult GetPrediction(string matchId)
+    public async Task<ActionResult> GetPrediction(string matchId)
     {
-        var match = _odds.GetPreMatchOdds().FirstOrDefault(m => m.MatchId == matchId);
+        var match = (await _odds.GetPreMatchOddsAsync()).FirstOrDefault(m => m.MatchId == matchId);
         if (match is null)
             return NotFound($"Match '{matchId}' not found or outside the betting window.");
 
@@ -394,8 +398,9 @@ public class BettingController : ControllerBase
     [HttpPost("bankroll/reset")]
     public async Task<ActionResult> ResetBankroll([FromBody] decimal? newAmount = null)
     {
-        await _bankroll.ResetAsync(newAmount);
-        return Ok(new { Message = "Bankroll reset.", Bankroll = await EnrichedBankrollAsync() });
+        var userId = CurrentUserId();
+        await _bankroll.ResetAsync(userId, newAmount);
+        return Ok(new { Message = "Bankroll reset.", Bankroll = await EnrichedBankrollAsync(userId) });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -441,7 +446,7 @@ public class BettingController : ControllerBase
     [HttpGet("parlays")]
     public async Task<ActionResult<List<ParlayCombo>>> GetParlays()
     {
-        var bankroll = await EnrichedBankrollAsync();
+        var bankroll = await EnrichedBankrollAsync(CurrentUserId());
         if (bankroll.IsStopLossTriggered)
             return Ok(new List<ParlayCombo>());
 
@@ -460,7 +465,7 @@ public class BettingController : ControllerBase
             };
         }
 
-        return Ok(await _parlay.BuildCombosAsync(opportunities));
+        return Ok(await _parlay.BuildCombosAsync(opportunities, bankroll));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -470,7 +475,7 @@ public class BettingController : ControllerBase
     /// <summary>Returns win/loss/PnL breakdown per sport for the analytics view.</summary>
     [HttpGet("stats/sport")]
     public async Task<ActionResult> GetStatsBySport()
-        => Ok(await _log.GetStatsBySportAsync());
+        => Ok(await _log.GetStatsBySportAsync(CurrentUserId()));
 
     // ─────────────────────────────────────────────────────────────────────────
     // GET /Betting/export/csv
@@ -480,7 +485,7 @@ public class BettingController : ControllerBase
     [HttpGet("export/csv")]
     public async Task<IActionResult> ExportCsv()
     {
-        var history = await _log.GetHistoryAsync();
+        var history = await _log.GetHistoryAsync(CurrentUserId());
         var lines   = new List<string>
         {
             "Id,HomeTeam,AwayTeam,Team,Outcome,SportType,Odds,ClosingOdds,CLV,Edge,Stake,PnL,Result,LineMovement,DatePlaced"
@@ -520,12 +525,12 @@ public class BettingController : ControllerBase
     private int CurrentUserId() =>
         int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : 1;
 
-    private async Task<Bankroll> EnrichedBankrollAsync()
+    private async Task<Bankroll> EnrichedBankrollAsync(int userId)
     {
-        var b      = await _bankroll.GetBankrollAsync();
+        var b      = await _bankroll.GetBankrollAsync(userId);
         var config = _cfg.Get();
-        b.TotalExposure        = await _log.GetTotalExposureAsync();
-        b.ConsecutiveLosses    = await _log.GetConsecutiveLossesAsync();
+        b.TotalExposure        = await _log.GetTotalExposureAsync(userId);
+        b.ConsecutiveLosses    = await _log.GetConsecutiveLossesAsync(userId);
         b.MaxConsecutiveLosses = config.MaxConsecutiveLosses;
         return b;
     }

@@ -6,6 +6,7 @@ namespace BettingAnalysis.Interfaces;
 public interface IValidationService
 {
     Task<ValidationResult> ValidateAsync(
+        int          userId,
         MatchOdds    match,
         string       team,
         decimal      odds,

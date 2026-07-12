@@ -12,6 +12,8 @@ namespace BettingAnalysis.Tests.Services;
 
 public class BankrollServiceTests : IDisposable
 {
+    private const int TestUserId = 1;
+
     private readonly ServiceProvider _serviceProvider;
     private readonly IBankrollService _service;
 
@@ -56,7 +58,7 @@ public class BankrollServiceTests : IDisposable
     [Fact]
     public async Task GetBankroll_InitialState_ReturnsSeedAmount()
     {
-        var b = await _service.GetBankrollAsync();
+        var b = await _service.GetBankrollAsync(TestUserId);
 
         b.TotalBankroll.Should().Be(10_000m);
         b.AvailableBankroll.Should().Be(10_000m);
@@ -67,9 +69,9 @@ public class BankrollServiceTests : IDisposable
     [Fact]
     public async Task ReserveStake_ReducesAvailableBankroll()
     {
-        await _service.ReserveStakeAsync(200m);
+        await _service.ReserveStakeAsync(TestUserId, 200m);
 
-        var b = await _service.GetBankrollAsync();
+        var b = await _service.GetBankrollAsync(TestUserId);
         b.AvailableBankroll.Should().Be(9_800m);
         b.TotalBankroll.Should().Be(10_000m);
     }
@@ -77,10 +79,10 @@ public class BankrollServiceTests : IDisposable
     [Fact]
     public async Task UpdateAfterResult_Win_IncreasesTotalBankroll()
     {
-        await _service.ReserveStakeAsync(100m);
-        await _service.UpdateAfterResultAsync(100m, 2.50m, "Win");
+        await _service.ReserveStakeAsync(TestUserId, 100m);
+        await _service.UpdateAfterResultAsync(TestUserId, 100m, 2.50m, "Win");
 
-        var b = await _service.GetBankrollAsync();
+        var b = await _service.GetBankrollAsync(TestUserId);
         // profit = 100 * (2.5 - 1) = 150; total = 10000 + 150 = 10150
         b.TotalBankroll.Should().Be(10_150m);
         b.AvailableBankroll.Should().Be(10_150m);
@@ -89,10 +91,10 @@ public class BankrollServiceTests : IDisposable
     [Fact]
     public async Task UpdateAfterResult_Loss_ReducesTotalAndTracksDailyLoss()
     {
-        await _service.ReserveStakeAsync(100m);
-        await _service.UpdateAfterResultAsync(100m, 2.50m, "Loss");
+        await _service.ReserveStakeAsync(TestUserId, 100m);
+        await _service.UpdateAfterResultAsync(TestUserId, 100m, 2.50m, "Loss");
 
-        var b = await _service.GetBankrollAsync();
+        var b = await _service.GetBankrollAsync(TestUserId);
         b.TotalBankroll.Should().Be(9_900m);
         b.DailyLossUsed.Should().Be(100m);
         b.CumulativeLoss.Should().Be(100m);
@@ -103,11 +105,11 @@ public class BankrollServiceTests : IDisposable
     {
         for (int i = 0; i < 11; i++)
         {
-            await _service.ReserveStakeAsync(100m);
-            await _service.UpdateAfterResultAsync(100m, 2.0m, "Loss");
+            await _service.ReserveStakeAsync(TestUserId, 100m);
+            await _service.UpdateAfterResultAsync(TestUserId, 100m, 2.0m, "Loss");
         }
 
-        var b = await _service.GetBankrollAsync();
+        var b = await _service.GetBankrollAsync(TestUserId);
         b.IsDailyLimitReached.Should().BeTrue();
     }
 
@@ -116,23 +118,23 @@ public class BankrollServiceTests : IDisposable
     {
         for (int i = 0; i < 22; i++)
         {
-            await _service.ReserveStakeAsync(100m);
-            await _service.UpdateAfterResultAsync(100m, 2.0m, "Loss");
+            await _service.ReserveStakeAsync(TestUserId, 100m);
+            await _service.UpdateAfterResultAsync(TestUserId, 100m, 2.0m, "Loss");
         }
 
-        var b = await _service.GetBankrollAsync();
+        var b = await _service.GetBankrollAsync(TestUserId);
         b.IsStopLossTriggered.Should().BeTrue();
     }
 
     [Fact]
     public async Task Reset_WithNewAmount_RestoresAllCounters()
     {
-        await _service.ReserveStakeAsync(100m);
-        await _service.UpdateAfterResultAsync(100m, 2.0m, "Loss");
+        await _service.ReserveStakeAsync(TestUserId, 100m);
+        await _service.UpdateAfterResultAsync(TestUserId, 100m, 2.0m, "Loss");
 
-        await _service.ResetAsync(5_000m);
+        await _service.ResetAsync(TestUserId, 5_000m);
 
-        var b = await _service.GetBankrollAsync();
+        var b = await _service.GetBankrollAsync(TestUserId);
         b.TotalBankroll.Should().Be(5_000m);
         b.AvailableBankroll.Should().Be(5_000m);
         b.DailyLossUsed.Should().Be(0m);
@@ -142,19 +144,35 @@ public class BankrollServiceTests : IDisposable
     [Fact]
     public async Task Reset_WithoutAmount_UsesInitialBankroll()
     {
-        await _service.ReserveStakeAsync(300m);
-        await _service.UpdateAfterResultAsync(300m, 2.0m, "Loss");
+        await _service.ReserveStakeAsync(TestUserId, 300m);
+        await _service.UpdateAfterResultAsync(TestUserId, 300m, 2.0m, "Loss");
 
-        await _service.ResetAsync();
+        await _service.ResetAsync(TestUserId);
 
-        var b = await _service.GetBankrollAsync();
+        var b = await _service.GetBankrollAsync(TestUserId);
         b.TotalBankroll.Should().Be(10_000m);
     }
 
     [Fact]
     public async Task MaxStakePerBet_IsThreePercentOfTotalBankroll()
     {
-        var b = await _service.GetBankrollAsync();
+        var b = await _service.GetBankrollAsync(TestUserId);
         b.MaxStakePerBet.Should().Be(300m);
+    }
+
+    [Fact]
+    public async Task DifferentUsers_HaveIndependentBankrolls()
+    {
+        const int otherUserId = 2;
+
+        await _service.ReserveStakeAsync(TestUserId, 500m);
+        await _service.UpdateAfterResultAsync(TestUserId, 500m, 2.0m, "Loss");
+
+        var user1 = await _service.GetBankrollAsync(TestUserId);
+        var user2 = await _service.GetBankrollAsync(otherUserId);
+
+        user1.TotalBankroll.Should().Be(9_500m);
+        user2.TotalBankroll.Should().Be(10_000m, "a loss recorded for one user must not affect another user's bankroll");
+        user2.AvailableBankroll.Should().Be(10_000m);
     }
 }

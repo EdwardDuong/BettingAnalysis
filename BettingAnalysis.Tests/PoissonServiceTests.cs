@@ -91,4 +91,16 @@ public class PoissonServiceTests
             Assert.InRange(r.AwayWinProb, 0, 1);
         }
     }
+
+    [Fact]
+    public void Binary_zero_lambdas_returns_even_split_instead_of_dividing_by_zero()
+    {
+        // homeLambda + awayLambda = 0 previously produced NaN (0/0), which would
+        // propagate into edge/stake calculations downstream.
+        var result = _sut.Predict(BinaryMatch(0, 0));
+
+        Assert.Equal(0.5, result.HomeWinProb);
+        Assert.Equal(0.5, result.AwayWinProb);
+        Assert.Equal(0,   result.DrawProb);
+    }
 }

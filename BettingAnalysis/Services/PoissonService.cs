@@ -75,7 +75,10 @@ public class PoissonService : IPoissonService
     /// </summary>
     private static PredictionResult PredictNoDraw(double homeLambda, double awayLambda)
     {
-        double total    = homeLambda + awayLambda;
+        double total = homeLambda + awayLambda;
+        if (total <= 0)
+            return new PredictionResult { HomeWinProb = 0.5, DrawProb = 0, AwayWinProb = 0.5 };
+
         double homeWin  = homeLambda / total;
         double awayWin  = awayLambda / total;
         return new PredictionResult
