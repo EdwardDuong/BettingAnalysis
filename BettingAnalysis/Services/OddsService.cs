@@ -30,10 +30,10 @@ public class OddsService : IOddsService
     /// Returns matches within the configured betting window.
     /// Window: kickoff between now+minHours and now+maxHours (default 1–6h).
     /// </summary>
-    public List<MatchOdds> GetPreMatchOdds()
+    public async Task<List<MatchOdds>> GetPreMatchOddsAsync()
     {
         var config = _cfg.Get();
-        var all    = GetAllOdds();
+        var all    = await GetAllOddsAsync();
         var now    = DateTime.UtcNow;
         var minKickoff = now.AddHours(config.PreMatchMinHours);
         var maxKickoff = now.AddHours(config.PreMatchMaxHours);
@@ -48,7 +48,7 @@ public class OddsService : IOddsService
 
     // ── Data source: real API or mock ─────────────────────────────────────────
 
-    private List<MatchOdds> GetAllOdds()
+    private async Task<List<MatchOdds>> GetAllOddsAsync()
     {
         if (_cache != null && DateTime.UtcNow < _cacheExpiry) return _cache;
 
@@ -56,13 +56,19 @@ public class OddsService : IOddsService
         {
             try
             {
-                _cacheLock.Wait();
+                await _cacheLock.WaitAsync();
                 try
                 {
                     if (_cache != null && DateTime.UtcNow < _cacheExpiry) return _cache;
-                    var real = _realApi.GetRealOddsAsync().GetAwaiter().GetResult();
+                    var real = await _realApi.GetRealOddsAsync();
                     if (real?.Count > 0)
                     {
+                        // The Odds API has no memory of its own — each call returns only
+                        // current prices. Carry the outgoing cache forward as "previous"
+                        // odds so LineMovementService can detect steaming/drifting between
+                        // successive refreshes, matching what the mock data does by hand.
+                        ApplyPreviousOdds(real, _cache);
+
                         _cache = real; _cacheExpiry = DateTime.UtcNow.Add(CacheDuration);
                         _logger.LogInformation(
                             "Loaded {Count} real matches from API. Cache until {T:HH:mm}",
@@ -78,6 +84,26 @@ public class OddsService : IOddsService
         _cache = GetMockOdds();
         _cacheExpiry = DateTime.UtcNow.Add(CacheDuration);
         return _cache;
+    }
+
+    /// <summary>
+    /// Copies each match's odds from <paramref name="previous"/> into the matching
+    /// match's Previous* fields in <paramref name="fresh"/>, matched by MatchId.
+    /// Matches with no prior snapshot (first time seen) are left without previous odds,
+    /// so LineMovementService correctly reports them as Stable rather than guessing.
+    /// </summary>
+    internal static void ApplyPreviousOdds(List<MatchOdds> fresh, List<MatchOdds>? previous)
+    {
+        if (previous is null || previous.Count == 0) return;
+
+        var byMatchId = previous.ToDictionary(m => m.MatchId);
+        foreach (var match in fresh)
+        {
+            if (!byMatchId.TryGetValue(match.MatchId, out var prior)) continue;
+            match.PreviousHomeOdds = prior.HomeOdds;
+            match.PreviousAwayOdds = prior.AwayOdds;
+            match.PreviousDrawOdds = prior.DrawOdds;
+        }
     }
 
     // ── Mock data — all matches within 1–6h window + previous odds ────────────
