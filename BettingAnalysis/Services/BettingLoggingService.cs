@@ -8,8 +8,16 @@ namespace BettingAnalysis.Services;
 public class BettingLoggingService : IBettingLoggingService
 {
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ConcurrentDictionary<int, List<RejectedBet>> _rejected = new();
-    private readonly object _rejectedLock = new();
+    // Per-user lock (rather than one global lock over every user's rejected-bet
+    // list) — matches the per-user locking granularity BankrollService.BankrollState
+    // uses for the same "per-user in-memory state needs thread-safety" problem.
+    private readonly ConcurrentDictionary<int, RejectedBetsHolder> _rejected = new();
+
+    private sealed class RejectedBetsHolder
+    {
+        public readonly List<RejectedBet> Items = new();
+        public readonly object Lock = new();
+    }
 
     public BettingLoggingService(IServiceScopeFactory scopeFactory)
         => _scopeFactory = scopeFactory;
@@ -67,10 +75,10 @@ public class BettingLoggingService : IBettingLoggingService
 
     public void LogRejected(int userId, string matchId, string team, string outcome, List<string> reasons)
     {
-        lock (_rejectedLock)
+        var holder = _rejected.GetOrAdd(userId, _ => new RejectedBetsHolder());
+        lock (holder.Lock)
         {
-            var list = _rejected.GetOrAdd(userId, _ => new List<RejectedBet>());
-            list.Add(new RejectedBet
+            holder.Items.Add(new RejectedBet
             {
                 MatchId   = matchId,
                 Team      = team,
@@ -83,11 +91,10 @@ public class BettingLoggingService : IBettingLoggingService
 
     public List<RejectedBet> GetRejected(int userId)
     {
-        lock (_rejectedLock)
+        if (!_rejected.TryGetValue(userId, out var holder)) return new List<RejectedBet>();
+        lock (holder.Lock)
         {
-            return _rejected.TryGetValue(userId, out var list)
-                ? list.OrderByDescending(r => r.Timestamp).ToList()
-                : new List<RejectedBet>();
+            return holder.Items.OrderByDescending(r => r.Timestamp).ToList();
         }
     }
 
@@ -181,14 +188,25 @@ public class BettingLoggingService : IBettingLoggingService
             // instead of a lone 100-110% bucket.
             .GroupBy(s => (int)Math.Min(Math.Floor(s.Probability * 10), 9))
             .OrderBy(g => g.Key)
-            .Select(g => (object)new
+            .Select(g =>
             {
-                Bucket             = $"{g.Key * 10}-{g.Key * 10 + 10}%",
-                SampleSize         = g.Count(),
-                PredictedAvgPct    = Math.Round(g.Average(s => s.Probability) * 100, 1),
-                ActualWinRatePct   = Math.Round((double)g.Count(s => s.Result == "Win") / g.Count() * 100, 1),
-                GapPct             = Math.Round(
-                    ((double)g.Count(s => s.Result == "Win") / g.Count() - g.Average(s => s.Probability)) * 100, 1),
+                // Materialize once — Count()/Average() on an IGrouping re-enumerate
+                // it on every call, so computing wins/sampleSize/avgProb up front
+                // avoids walking the same bucket's bets four separate times.
+                var bucket      = g.ToList();
+                var sampleSize  = bucket.Count;
+                var wins        = bucket.Count(s => s.Result == "Win");
+                var avgProb     = bucket.Average(s => s.Probability);
+                var actualRate  = (double)wins / sampleSize;
+
+                return (object)new
+                {
+                    Bucket           = $"{g.Key * 10}-{g.Key * 10 + 10}%",
+                    SampleSize       = sampleSize,
+                    PredictedAvgPct  = Math.Round(avgProb * 100, 1),
+                    ActualWinRatePct = Math.Round(actualRate * 100, 1),
+                    GapPct           = Math.Round((actualRate - avgProb) * 100, 1),
+                };
             })
             .ToList();
     }

@@ -488,7 +488,28 @@ public class BettingController : ControllerBase
             };
         }
 
-        return Ok(await _parlay.BuildCombosAsync(opportunities, bankroll));
+        var combos = await _parlay.BuildCombosAsync(opportunities, bankroll);
+        ScaleParlayStakesToExposureBudget(combos, bankroll);
+
+        return Ok(combos);
+    }
+
+    /// <summary>
+    /// Same reasoning as ScaleStakesToExposureBudget: BuildCombosAsync returns up to
+    /// three tier combos (Safe/Medium/Aggressive), each with its own independently-
+    /// computed SuggestedStake against the same AvailableBankroll. Taking all three at
+    /// face value can jointly exceed the exposure budget even though each looked fine
+    /// on its own.
+    /// </summary>
+    internal static void ScaleParlayStakesToExposureBudget(List<ParlayCombo> combos, Bankroll bankroll)
+    {
+        var remainingBudget = Math.Max(0m, bankroll.MaxExposure - bankroll.TotalExposure);
+        var totalSuggested  = combos.Sum(c => c.SuggestedStake);
+        if (totalSuggested <= remainingBudget || totalSuggested <= 0m) return;
+
+        var scale = remainingBudget / totalSuggested;
+        foreach (var combo in combos)
+            combo.SuggestedStake = Math.Round(combo.SuggestedStake * scale, 2);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

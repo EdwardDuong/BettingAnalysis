@@ -83,7 +83,7 @@ public class ValidationServiceIntegrationTests : IDisposable
     public async Task ShouldAcceptBet_WhenAllConditionsValid()
     {
         var match  = CreateMatch(kickoffInHours: 24);
-        var result = await _validationService.ValidateAsync(TestUserId, match,"Arsenal", 2.10m, 0.08, 100m, Stable);
+        var result = await _validationService.ValidateAsync(TestUserId, match, "Arsenal", 2.10m, 0.08, 100m, Stable);
 
         result.IsValid.Should().BeTrue();
         result.Violations.Should().BeEmpty();
@@ -93,7 +93,7 @@ public class ValidationServiceIntegrationTests : IDisposable
     public async Task ShouldRejectBet_WhenTooCloseToKickoff()
     {
         var match  = CreateMatch(kickoffInHours: 0.5);
-        var result = await _validationService.ValidateAsync(TestUserId, match,"Arsenal", 2.10m, 0.08, 100m, Stable);
+        var result = await _validationService.ValidateAsync(TestUserId, match, "Arsenal", 2.10m, 0.08, 100m, Stable);
 
         result.IsValid.Should().BeFalse();
         result.Violations.Should().Contain(v => v.Contains("too close"));
@@ -103,7 +103,7 @@ public class ValidationServiceIntegrationTests : IDisposable
     public async Task ShouldRejectBet_WhenEdgeTooLow()
     {
         var match  = CreateMatch(kickoffInHours: 24);
-        var result = await _validationService.ValidateAsync(TestUserId, match,"Arsenal", 2.10m, 0.03, 100m, Stable);
+        var result = await _validationService.ValidateAsync(TestUserId, match, "Arsenal", 2.10m, 0.03, 100m, Stable);
 
         result.IsValid.Should().BeFalse();
         result.Violations.Should().Contain(v => v.Contains("Edge") && v.Contains("3") && v.Contains("5"));
@@ -113,7 +113,7 @@ public class ValidationServiceIntegrationTests : IDisposable
     public async Task ShouldWarnBet_WhenEdgeSuspiciouslyHigh()
     {
         var match  = CreateMatch(kickoffInHours: 24);
-        var result = await _validationService.ValidateAsync(TestUserId, match,"Arsenal", 3.00m, 0.25, 100m, Stable);
+        var result = await _validationService.ValidateAsync(TestUserId, match, "Arsenal", 3.00m, 0.25, 100m, Stable);
 
         result.Warnings.Should().Contain(w => w.Contains("Edge") && w.Contains("25") && w.Contains("20"));
     }
@@ -122,7 +122,7 @@ public class ValidationServiceIntegrationTests : IDisposable
     public async Task ShouldRejectBet_WhenLineMovingAgainst()
     {
         var match  = CreateMatch(kickoffInHours: 24);
-        var result = await _validationService.ValidateAsync(TestUserId, match,"Arsenal", 2.10m, 0.08, 100m, Drifting);
+        var result = await _validationService.ValidateAsync(TestUserId, match, "Arsenal", 2.10m, 0.08, 100m, Drifting);
 
         result.IsValid.Should().BeFalse();
         result.Violations.Should().Contain(v => v.Contains("drifting") || v.Contains("Bet blocked"));
@@ -133,7 +133,7 @@ public class ValidationServiceIntegrationTests : IDisposable
     {
         await SimulateLossesAsync(2500m);
         var match  = CreateMatch(kickoffInHours: 24);
-        var result = await _validationService.ValidateAsync(TestUserId, match,"Arsenal", 2.10m, 0.08, 100m, Stable);
+        var result = await _validationService.ValidateAsync(TestUserId, match, "Arsenal", 2.10m, 0.08, 100m, Stable);
 
         result.IsValid.Should().BeFalse();
         result.Violations.Should().Contain(v => v.Contains("SYSTEM HALTED") || v.Contains("stop-loss"));
@@ -144,7 +144,7 @@ public class ValidationServiceIntegrationTests : IDisposable
     {
         await SimulateLossesAsync(1100m);
         var match  = CreateMatch(kickoffInHours: 24);
-        var result = await _validationService.ValidateAsync(TestUserId, match,"Arsenal", 2.10m, 0.08, 100m, Stable);
+        var result = await _validationService.ValidateAsync(TestUserId, match, "Arsenal", 2.10m, 0.08, 100m, Stable);
 
         result.IsValid.Should().BeFalse();
         result.Violations.Should().Contain(v => v.Contains("Daily loss limit reached"));
@@ -154,7 +154,7 @@ public class ValidationServiceIntegrationTests : IDisposable
     public async Task ShouldRejectBet_WhenStakeTooLarge()
     {
         var match  = CreateMatch(kickoffInHours: 24);
-        var result = await _validationService.ValidateAsync(TestUserId, match,"Arsenal", 2.10m, 0.08, 500m, Stable);
+        var result = await _validationService.ValidateAsync(TestUserId, match, "Arsenal", 2.10m, 0.08, 500m, Stable);
 
         result.IsValid.Should().BeFalse();
         result.Violations.Should().Contain(v => v.Contains("Stake") && v.Contains("500") && v.Contains("300"));
@@ -165,7 +165,7 @@ public class ValidationServiceIntegrationTests : IDisposable
     {
         await PlacePendingBetAsync(800m);
         var match  = CreateMatch(kickoffInHours: 24);
-        var result = await _validationService.ValidateAsync(TestUserId, match,"Arsenal", 2.10m, 0.08, 300m, Stable);
+        var result = await _validationService.ValidateAsync(TestUserId, match, "Arsenal", 2.10m, 0.08, 300m, Stable);
 
         result.IsValid.Should().BeFalse();
         result.Violations.Should().Contain(v => v.Contains("Exposure limit") || v.Contains("exposure"));
@@ -176,7 +176,7 @@ public class ValidationServiceIntegrationTests : IDisposable
     {
         await SimulateConsecutiveLossesAsync(3);
         var match  = CreateMatch(kickoffInHours: 24);
-        var result = await _validationService.ValidateAsync(TestUserId, match,"Arsenal", 2.10m, 0.08, 100m, Stable);
+        var result = await _validationService.ValidateAsync(TestUserId, match, "Arsenal", 2.10m, 0.08, 100m, Stable);
 
         result.IsValid.Should().BeFalse();
         result.Violations.Should().Contain(v => v.Contains("Tilt protection active"));
@@ -188,7 +188,7 @@ public class ValidationServiceIntegrationTests : IDisposable
         await PlacePendingBetAsync(100m, "MATCH-001");
         await PlacePendingBetAsync(100m, "MATCH-001");
         var match  = CreateMatch(kickoffInHours: 24, matchId: "MATCH-001");
-        var result = await _validationService.ValidateAsync(TestUserId, match,"Arsenal", 2.10m, 0.08, 100m, Stable);
+        var result = await _validationService.ValidateAsync(TestUserId, match, "Arsenal", 2.10m, 0.08, 100m, Stable);
 
         result.IsValid.Should().BeFalse();
         result.Violations.Should().Contain(v => v.Contains("Already 2 bet") || v.Contains("on this match"));

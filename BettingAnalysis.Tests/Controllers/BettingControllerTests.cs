@@ -88,4 +88,51 @@ public class BettingControllerTests
         opportunities[0].SuggestedStake.Should().Be(0m);
         opportunities[1].SuggestedStake.Should().Be(0m);
     }
+
+    // ── ScaleParlayStakesToExposureBudget ───────────────────────────────────
+    // Same overshoot risk as above, but for the up-to-three tier combos
+    // GetParlays() returns together (Safe/Medium/Aggressive).
+
+    private static ParlayCombo Combo(decimal suggestedStake) => new()
+    {
+        RiskLabel = Guid.NewGuid().ToString(),
+        SuggestedStake = suggestedStake,
+    };
+
+    [Fact]
+    public void Parlay_TotalUnderBudget_LeavesStakesUnchanged()
+    {
+        var combos   = new List<ParlayCombo> { Combo(100m), Combo(150m) };
+        var bankroll = Bankroll(maxExposure: 1000m, totalExposure: 0m);
+
+        BettingController.ScaleParlayStakesToExposureBudget(combos, bankroll);
+
+        combos[0].SuggestedStake.Should().Be(100m);
+        combos[1].SuggestedStake.Should().Be(150m);
+    }
+
+    [Fact]
+    public void Parlay_ThreeTiersOverBudget_ScaleDownProportionally()
+    {
+        // Safe/Medium/Aggressive suggest 100 each (300 total); only 150 of budget left
+        var combos   = new List<ParlayCombo> { Combo(100m), Combo(100m), Combo(100m) };
+        var bankroll = Bankroll(maxExposure: 150m, totalExposure: 0m);
+
+        BettingController.ScaleParlayStakesToExposureBudget(combos, bankroll);
+
+        combos.Sum(c => c.SuggestedStake).Should().BeLessThanOrEqualTo(bankroll.MaxExposure);
+        combos[0].SuggestedStake.Should().Be(50m);
+    }
+
+    [Fact]
+    public void Parlay_ExposureAlreadyAtLimit_ZerosOutAllTiers()
+    {
+        var combos   = new List<ParlayCombo> { Combo(100m), Combo(100m) };
+        var bankroll = Bankroll(maxExposure: 500m, totalExposure: 500m);
+
+        BettingController.ScaleParlayStakesToExposureBudget(combos, bankroll);
+
+        combos[0].SuggestedStake.Should().Be(0m);
+        combos[1].SuggestedStake.Should().Be(0m);
+    }
 }
