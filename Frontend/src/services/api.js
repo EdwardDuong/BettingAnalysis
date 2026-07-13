@@ -183,6 +183,7 @@ export const getHistory       = () => request('/history');
 export const getBankroll      = () => request('/bankroll');
 export const getStats         = () => request('/stats');
 export const getSportStats    = () => request('/stats/sport');
+export const getCalibrationReport = () => request('/stats/calibration');
 export const getParlays       = () => request('/parlays');
 export const getDailyDouble   = () => request('/daily-double');
 export const getRejected      = () => request('/rejected');

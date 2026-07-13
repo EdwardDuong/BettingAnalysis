@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getSportStats, getBankrollHistory } from '../services/api.js';
+import { getSportStats, getBankrollHistory, getCalibrationReport } from '../services/api.js';
 
 const SPORT_EMOJI = {
   EPL: '⚽', LaLiga: '⚽', Bundesliga: '⚽', SerieA: '⚽', Ligue1: '⚽',
@@ -11,13 +11,14 @@ const fmt = (n) => new Intl.NumberFormat('en-AU', { style: 'currency', currency:
 export default function AnalyticsPanel({ history }) {
   const [sportStats,       setSportStats]       = useState([]);
   const [bankrollHistory,  setBankrollHistory]  = useState([]);
+  const [calibration,      setCalibration]      = useState([]);
   const [historyDays,      setHistoryDays]      = useState(90);
   const [loading,          setLoading]          = useState(true);
   const [error,            setError]            = useState(null);
 
   useEffect(() => {
-    Promise.all([getSportStats(), getBankrollHistory(historyDays)])
-      .then(([sports, bkHistory]) => { setSportStats(sports); setBankrollHistory(bkHistory); })
+    Promise.all([getSportStats(), getBankrollHistory(historyDays), getCalibrationReport()])
+      .then(([sports, bkHistory, calib]) => { setSportStats(sports); setBankrollHistory(bkHistory); setCalibration(calib); })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
   }, [historyDays]);
@@ -142,6 +143,11 @@ export default function AnalyticsPanel({ history }) {
             </table>
           </div>
         )}
+      </Section>
+
+      {/* ── Model calibration ─────────────────────────────── */}
+      <Section title="Model Calibration (predicted vs. actual)">
+        <CalibrationTable buckets={calibration} />
       </Section>
 
       {/* ── Edge distribution ─────────────────────────────── */}
@@ -293,6 +299,64 @@ function EdgeDistribution({ bets }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function CalibrationTable({ buckets }) {
+  if (!buckets || buckets.length === 0)
+    return (
+      <p className="text-gray-500 text-sm text-center py-4">
+        No settled bets yet — this fills in once results start coming in.
+        A well-calibrated model's "60–70%" bucket should show an actual win
+        rate near 60–70%; a large, consistent gap means the model (or a
+        sport's calibration factor) is biased.
+      </p>
+    );
+
+  const gapColor = (gap) => {
+    const abs = Math.abs(gap);
+    if (abs <= 5)  return 'text-green-400';
+    if (abs <= 15) return 'text-yellow-400';
+    return 'text-red-400';
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm text-left">
+          <thead>
+            <tr className="text-gray-400 text-xs uppercase border-b border-gray-700">
+              <th className="pb-2">Predicted Bucket</th>
+              <th className="pb-2 text-right">Sample Size</th>
+              <th className="pb-2 text-right">Predicted Avg</th>
+              <th className="pb-2 text-right">Actual Win Rate</th>
+              <th className="pb-2 text-right">Gap</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-700">
+            {buckets.map(b => (
+              <tr key={b.bucket} className="hover:bg-gray-700 transition-colors">
+                <td className="py-3 font-medium text-white">{b.bucket}</td>
+                <td className="py-3 text-right text-gray-300">
+                  {b.sampleSize}
+                  {b.sampleSize < 10 && <span className="text-gray-500 text-xs ml-1">(small sample)</span>}
+                </td>
+                <td className="py-3 text-right text-gray-300">{b.predictedAvgPct?.toFixed(1)}%</td>
+                <td className="py-3 text-right text-gray-300">{b.actualWinRatePct?.toFixed(1)}%</td>
+                <td className={`py-3 text-right font-bold font-mono ${gapColor(b.gapPct)}`}>
+                  {b.gapPct >= 0 ? '+' : ''}{b.gapPct?.toFixed(1)}%
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-gray-500 text-xs">
+        Gap = actual win rate − predicted average. Green ≤5pp, yellow ≤15pp, red &gt;15pp.
+        Buckets with few settled bets are noisy — treat them as a signal to
+        keep watching, not a verdict.
+      </p>
     </div>
   );
 }
