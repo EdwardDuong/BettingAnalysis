@@ -164,6 +164,7 @@ Risk Management Rules section).
 | `GoodBetMaxStake` / `RiskyMaxStake` | 500 / 50 | — | Secondary per-decision stake caps — at the current $10k bankroll these are looser than `MaxStakePercent`'s $300 cap, so they don't currently bind |
 | `DailyDoubleTargetOdds`   | 2.0       | —    | Target combined odds for `/Betting/daily-double`  |
 | `DailyDoubleMaxLegs`      | 20        | —    | Max legs the daily-double pick will combine       |
+| `SoccerCalibrationShrinkage` | 0.5    | —    | Dampens soccer lambda scaling for lopsided matches — 1.0 = old undamped behaviour, 0.0 = always predict the league average (zero edge). See Probability Model above. |
 
 ---
 
@@ -235,7 +236,11 @@ independent historical team ratings:
   simplification, not real Dixon–Coles attack/defence ratings (no per-team data is
   used). Because the scaling input comes from the match's own odds, the resulting
   "edge" is largely a Poisson round-trip of the market's own price, not independent
-  forecasting skill.
+  forecasting skill. The raw ratio-to-league-average scaling amplifies deviation for
+  lopsided matches (a big favourite/underdog far from the league's assumed average
+  win rate) instead of damping it, so `BettingConfig.SoccerCalibrationShrinkage`
+  (default 0.5) blends it back toward 1.0 — favouring plausible, consistent
+  predictions over occasionally-large-but-unreliable edge on outlier matches.
 - **Non-soccer**: `BettingConfig.HomeCalibration` applies a fixed per-sport
   home-advantage multiplier to the de-vigged market probability. Without it, model
   probability equals the market's exactly and edge is always ≤ 0 by construction —

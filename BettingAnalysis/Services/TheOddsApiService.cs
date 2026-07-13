@@ -63,6 +63,10 @@ public class TheOddsApiService
     // "edge" reflects the Poisson round-trip of that scaling, not independent
     // forecasting skill. Treat soccer edge with the same skepticism as
     // GET /Betting/stats/calibration would justify, not as a proven signal.
+    // SoccerCalibrationShrinkage (BettingConfig) dampens the ratio scaling below so
+    // lopsided matches (the ones furthest from AvgHomeWinRate/AvgAwayWinRate) don't
+    // get their model probability pushed even further from the market than the raw
+    // ratio alone would produce.
     private static readonly Dictionary<SportType, (double AvgHome, double AvgAway, double AvgHomeWinRate, double AvgAwayWinRate)> SoccerParams = new()
     {
         { SportType.EPL,             (1.45, 1.05, 0.46, 0.29) },
@@ -195,10 +199,14 @@ public class TheOddsApiService
         if (sport.IsSoccerLeague())
         {
             // All soccer leagues: Poisson goal model with league-specific averages.
-            // Scale each team's expected goals by relative strength vs league mean.
+            // Scale each team's expected goals by relative strength vs league mean,
+            // dampened by SoccerCalibrationShrinkage so a lopsided match's own odds
+            // don't get amplified further from the league average (see that
+            // config's doc comment for why the raw, undamped ratio was unstable).
             var p = SoccerParams.TryGetValue(sport, out var sp) ? sp : SoccerParams[SportType.EPL];
-            homeLambda = p.AvgHome * (fairHome / p.AvgHomeWinRate);
-            awayLambda = p.AvgAway * (fairAway / p.AvgAwayWinRate);
+            var shrinkage = _cfg.Get().SoccerCalibrationShrinkage;
+            homeLambda = p.AvgHome * DampenRatio(fairHome / p.AvgHomeWinRate, shrinkage);
+            awayLambda = p.AvgAway * DampenRatio(fairAway / p.AvgAwayWinRate, shrinkage);
             homeLambda = Math.Clamp(homeLambda, 0.3, 3.5);
             awayLambda = Math.Clamp(awayLambda, 0.3, 3.5);
         }
@@ -228,6 +236,14 @@ public class TheOddsApiService
             AwayLambda     = Math.Round(awayLambda, 3),
         };
     }
+
+    /// <summary>
+    /// Blends a ratio toward 1.0 (i.e. toward "ignore this match's own signal, trust
+    /// the league average") by (1 - shrinkage). shrinkage=1 returns the ratio
+    /// unchanged (old behaviour); shrinkage=0 always returns 1.0 regardless of input.
+    /// </summary>
+    internal static double DampenRatio(double rawRatio, double shrinkage) =>
+        1.0 + shrinkage * (rawRatio - 1.0);
 
     // ── Odds API response DTOs ────────────────────────────────────────────────
 

@@ -119,6 +119,27 @@ public class BettingConfig
     /// <summary>Dollar cap for the daily double-up pick's suggested stake.</summary>
     public decimal DailyDoubleMaxStake { get; set; } = 100m;
 
+    // ── Soccer calibration stability ──────────────────────────────────────────
+    /// <summary>
+    /// Shrinkage applied to the soccer lambda calibration's ratio-to-league-average
+    /// scaling (see TheOddsApiService.MapToMatchOdds / DampenRatio). The raw ratio
+    /// (this match's market-implied win prob ÷ the league's average win rate)
+    /// amplifies deviation instead of damping it — the further a match's odds sit
+    /// from the league average (i.e. exactly the lopsided favourite/underdog
+    /// matchups), the more the model exaggerates that deviation, compounding
+    /// whatever error is already in SoccerParams rather than absorbing it.
+    ///
+    /// 1.0 = full raw ratio (old, undamped behaviour). 0.0 = ignore this match's own
+    /// market odds entirely and always predict the league-average lambda (edge is
+    /// then always 0, by construction). Default 0.5 deliberately favours plausible,
+    /// consistent predictions over occasionally-large-but-unreliable edge — these
+    /// calibration constants are unverified placeholders (see HomeCalibration's doc
+    /// comment), so being roughly right consistently matters more than being
+    /// dramatically "right" on a guess. Lower this further (toward 0) if
+    /// GET /Betting/stats/calibration shows soccer edge is systematically overconfident.
+    /// </summary>
+    public double SoccerCalibrationShrinkage { get; set; } = 0.5;
+
     // ── Non-soccer home-advantage calibration ─────────────────────────────────
     /// <summary>
     /// Home-advantage calibration multiplier per non-soccer sport, applied by
