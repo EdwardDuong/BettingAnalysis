@@ -147,9 +147,9 @@ Risk Management Rules section).
 
 | Key                       | Current value | Rule | Description                                      |
 |---------------------------|-----------|------|--------------------------------------------------|
-| `InitialBankroll`         | 10000     | —    | Starting bankroll in dollars                     |
+| `InitialBankroll`         | **500**   | —    | Starting bankroll in dollars                     |
 | `KellyFraction`           | 0.5       | —    | Fractional Kelly (0.5 = half-Kelly)              |
-| `MaxStakePercent`         | 0.03      | #3   | Max stake per bet as fraction of bankroll (fixed 3%, not a range) |
+| `MaxStakePercent`         | **0.10**  | #3   | Max stake per bet as fraction of bankroll (fixed 10% — the maximum `PUT /Betting/settings` allows; $50 on the current $500 bankroll) |
 | `DailyLossLimitPercent`   | 0.10      | #4   | Stop betting today once losses exceed this fraction of the bankroll at the start of the day |
 | `StopLossPercent`         | 0.20      | #5   | Halt system if cumulative loss exceeds this fraction of the *initial* bankroll |
 | `MaxExposurePercent`      | 0.10      | #8   | Total pending-bet stake must not exceed this fraction of current bankroll |
@@ -161,9 +161,11 @@ Risk Management Rules section).
 | `MaxConsecutiveLosses`    | **5**     | #10  | Halt betting (tilt protection) after this many losses in a row |
 | `MaxBetsPerMatch`         | 2         | #9   | Max simultaneous bets on the same match           |
 | `TeamBlacklist`           | `[]`      | #11  | Teams never bet on regardless of edge — empty by default, so inactive until populated |
-| `GoodBetMaxStake` / `RiskyMaxStake` | 500 / 50 | — | Secondary per-decision stake caps — at the current $10k bankroll these are looser than `MaxStakePercent`'s $300 cap, so they don't currently bind |
+| `GoodBetMaxStake` / `RiskyMaxStake` | 25 / 2.5 | — | Secondary per-decision stake caps, scaled to the $500 bankroll (previously 500/50 for a $10k bankroll) — both stay tighter than `MaxStakePercent`'s $50 cap, so they do bind now |
+| `Parlay3/4/5MaxStake`     | 5 / 3.75 / 2.5 | — | Per-tier parlay stake caps, scaled to the $500 bankroll (previously 100/75/50) |
 | `DailyDoubleTargetOdds`   | 2.0       | —    | Target combined odds for `/Betting/daily-double`  |
 | `DailyDoubleMaxLegs`      | 20        | —    | Max legs the daily-double pick will combine       |
+| `DailyDoubleMaxStake`     | **5**     | —    | Dollar cap for the daily-double pick's stake, scaled to the $500 bankroll (previously 100) |
 | `SoccerCalibrationShrinkage` | 0.5    | —    | Dampens soccer lambda scaling for lopsided matches — 1.0 = old undamped behaviour, 0.0 = always predict the league average (zero edge). See Probability Model above. |
 
 ---
@@ -200,7 +202,7 @@ changed at runtime by an Admin via `PUT /Betting/settings`.
 |----|-------------------------|--------------------------------------------------------------|
 | 1  | Pre-match only          | `OddsService` filters `MatchStartTime` between now+1h and now+2wk |
 | 2  | Edge ≥ 4%               | `ValidationService` **rejects placement** below `EdgeThreshold` (currently 4%, not 5%). `/opportunities` does *not* filter these out — it still returns them labelled `SKIP`, with the placement button disabled client-side. |
-| 3  | Max stake ≤ 3% of bankroll | `BetSizingService` caps half-Kelly at `MaxStakePercent` (a fixed 3% ceiling, not a 2–5% range); `ValidationService` re-checks the final stake against it before placement |
+| 3  | Max stake ≤ 10% of bankroll | `BetSizingService` caps half-Kelly at `MaxStakePercent` (a fixed 10% ceiling — the max `PUT /Betting/settings` allows — not a range); `ValidationService` re-checks the final stake against it before placement. $50 on the current $500 bankroll. |
 | 4  | Daily loss ≤ 10%        | `BankrollService` rejects further bets once `DailyLossUsed` hits `DailyLossLimit` — fixed to the bankroll at the *start of the current day*, so the limit doesn't shrink further as losses accrue during the day |
 | 5  | Stop-loss at 20%        | System halts once cumulative loss hits 20% of the *initial* bankroll; `/opportunities` and `/parlays` return empty lists while active |
 | 6  | Market focus            | `AIValidatorService` adds a soft `BIG_MATCHUP_LOW_EDGE` penalty (score −1, not a hard block) when edge is below `BigMatchupEdgeThreshold` (8%) *and* both teams are on that league's `BigTeams` list — a hand-curated set of the most heavily-bet clubs per league (`BettingConfig.BigTeams`). Applies to all 9 soccer leagues, not just EPL; deliberately excludes MLS (markets aren't efficiently-priced the same way) and Champions League (nearly every participant would count as "big"). |

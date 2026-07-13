@@ -36,6 +36,14 @@ public class BettingConfigService : IBettingConfigService
             Parlay5MaxStake        = cfg.GetValue<decimal>("BettingSettings:Parlay5MaxStake", 50m),
             TeamBlacklist          = cfg.GetSection("BettingSettings:TeamBlacklist").Get<List<string>>() ?? new(),
             RequireLineMovementCheck = true,
+            DailyDoubleTargetOdds   = cfg.GetValue<decimal>("BettingSettings:DailyDoubleTargetOdds", 2.0m),
+            DailyDoubleMaxLegs      = cfg.GetValue<int>("BettingSettings:DailyDoubleMaxLegs", 20),
+            DailyDoubleMaxStake     = cfg.GetValue<decimal>("BettingSettings:DailyDoubleMaxStake", 100m),
+            BigMatchupEdgeThreshold = cfg.GetValue<double>("BettingSettings:BigMatchupEdgeThreshold", 0.08),
+            SoccerCalibrationShrinkage = cfg.GetValue<double>("BettingSettings:SoccerCalibrationShrinkage", 0.5),
+            // HomeCalibration and BigTeams are intentionally NOT read from appsettings.json —
+            // they're nested per-sport dictionaries best edited via PUT /Betting/settings or
+            // in code; the class-level defaults in BettingConfig.cs apply unless overridden live.
         };
     }
 
