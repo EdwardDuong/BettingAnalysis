@@ -99,8 +99,8 @@ public class BettingConfig
             { "Manchester City", "Liverpool", "Arsenal", "Manchester United", "Chelsea", "Tottenham" },
         [SportType.LaLiga]       = new() { "Real Madrid", "Barcelona", "Atletico Madrid" },
         [SportType.Bundesliga]   = new() { "Bayern Munich", "Borussia Dortmund" },
-        [SportType.SerieA]       = new() { "Juventus", "Inter Milan", "AC Milan", "Napoli" },
-        [SportType.Ligue1]       = new() { "Paris Saint-Germain" },
+        [SportType.SerieA]       = new() { "Juventus", "Inter Milan", "AC Milan", "Napoli", "Atalanta" },
+        [SportType.Ligue1]       = new() { "Paris Saint-Germain", "Marseille" },
         [SportType.Eredivisie]   = new() { "Ajax", "PSV Eindhoven", "Feyenoord" },
         [SportType.PrimeiraLiga] = new() { "Benfica", "Porto", "Sporting CP" },
         // MLS and ChampionsLeague deliberately omitted: MLS markets aren't
