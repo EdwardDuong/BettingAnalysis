@@ -1,6 +1,30 @@
 # Betting Analysis - Professional Enhancement Roadmap
 
-## Current Status Assessment
+## Status Update (2026-07-13)
+
+This roadmap was written when the project was 2/14 services tested, JSON-file-backed,
+and unauthenticated. Since then, TIER 1 items #1-#4 have shipped:
+
+- **Testing** — every service in `BettingAnalysis/Services/` now has a dedicated test
+  file in `BettingAnalysis.Tests/Services/` (151 tests passing). The last two gaps,
+  `BettingConfigService` and `OddsRefreshService`, were closed in this pass.
+- **Database** — EF Core 8 on SQL Server replaced the JSON file store (see
+  `BettingAnalysis/Data/`), with migrations checked into `Migrations/`.
+- **Auth** — JWT bearer auth + BCrypt hashing + refresh tokens (`AuthService`,
+  `JwtBearer` middleware) replaced the "no security layer" state.
+- **Validation/error handling** — `Middleware/GlobalExceptionHandler.cs` maps
+  exceptions to `ProblemDetails`; rate limiting (`AddRateLimiter`) and health checks
+  (`/health`) are wired in `Program.cs`.
+
+The code snippets below for those items are historical design reference, not a
+to-do list — don't re-implement them. **Still open**, in rough priority order:
+API versioning (TIER 1 #5, low priority for a single-client app), containerization
+(TIER 3 #14 — no `Dockerfile`/`docker-compose.yml` exists yet), and the CI/CD
+deploy stage (`.github/workflows/ci.yml` runs build+test only, no deploy job).
+TIER 2's Redis/Hangfire and TIER 4 (CQRS, event sourcing, ML.NET) are YAGNI at
+this project's current single-user scale — revisit only if that changes.
+
+## Current Status Assessment (original, superseded above)
 
 **Overall Grade:** B+ (Production-Grade Design, Development-Stage Implementation)
 
@@ -12,10 +36,10 @@
 - Professional code quality with comprehensive comments
 - Rich feature set covering entire betting workflow
 
-**Critical Gaps:**
-- Testing coverage inadequate (15% of services tested - only 2/14)
-- No database (fundamental production requirement)
-- No security layer (authentication, authorization, rate limiting)
+**Critical Gaps (as of original writing — see Status Update above):**
+- ~~Testing coverage inadequate (15% of services tested - only 2/14)~~ — done
+- ~~No database (fundamental production requirement)~~ — done
+- ~~No security layer (authentication, authorization, rate limiting)~~ — done
 - Limited scalability (singleton services with in-memory state)
 - Frontend could benefit from state management library
 - No deployment automation or infrastructure-as-code
@@ -24,25 +48,12 @@
 
 ## TIER 1: Critical - Must Have (Implement Immediately)
 
-### 1. Testing Infrastructure (Priority #1)
+### 1. Testing Infrastructure (Priority #1) — ✅ DONE (2026-07-13)
 
-**Current State:** Only 2/14 services tested (PoissonService, EdgeService)
-
-**Why Critical:** With complex betting logic, one bug can cause financial loss. ValidationService has 11 rules that are completely untested.
-
-**Untested Services:**
-- ValidationService (11 critical rules - HIGH PRIORITY)
-- AIValidatorService (complex scoring logic - HIGH PRIORITY)
-- BankrollService (money management - CRITICAL)
-- BetSizingService (Kelly calculations - CRITICAL)
-- BettingLoggingService (data persistence)
-- LineMovementService
-- CLVService
-- ParlayService (complex combo building)
-- TheOddsApiService (API integration)
-- OddsService (caching logic)
-- BettingConfigService
-- OddsRefreshService
+**Status:** All 15 services in `BettingAnalysis/Services/` have dedicated tests under
+`BettingAnalysis.Tests/Services/`, plus controller-level integration tests. 151 tests
+passing. The code below is kept as historical reference for the testing approach
+that was followed, not an outstanding task list.
 
 **Implementation Plan:**
 
