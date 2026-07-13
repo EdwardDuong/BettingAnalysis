@@ -75,6 +75,40 @@ public class BettingConfig
     /// <summary>Rule: Block bets when odds are drifting against prediction.</summary>
     public bool RequireLineMovementCheck { get; set; } = true;
 
+    // ── Market focus (Rule #6) ────────────────────────────────────────────────
+    /// <summary>
+    /// Minimum edge required for a match between two "big" teams (see BigTeams) in
+    /// the same league. These are the most heavily-bet, most efficiently-priced
+    /// matchups, so a thin edge there is more likely to be model noise than real
+    /// value — below this, AIValidatorService adds ValidationFlags.BigMatchupLowEdge
+    /// and subtracts 1 from the score. This is a soft penalty, not a hard block.
+    /// </summary>
+    public double BigMatchupEdgeThreshold { get; set; } = 0.08;
+
+    /// <summary>
+    /// Per-league list of "big" teams. A match only counts as a "big matchup" for
+    /// BigMatchupEdgeThreshold if BOTH HomeTeam and AwayTeam are in that league's
+    /// list (case-insensitive exact match). Hand-curated, not derived from betting
+    /// volume/handle data — this system has no access to real market liquidity
+    /// figures, so treat this the same as TeamBlacklist: a manually maintained list,
+    /// not a computed one.
+    /// </summary>
+    public Dictionary<SportType, List<string>> BigTeams { get; set; } = new()
+    {
+        [SportType.EPL] = new()
+            { "Manchester City", "Liverpool", "Arsenal", "Manchester United", "Chelsea", "Tottenham" },
+        [SportType.LaLiga]       = new() { "Real Madrid", "Barcelona", "Atletico Madrid" },
+        [SportType.Bundesliga]   = new() { "Bayern Munich", "Borussia Dortmund" },
+        [SportType.SerieA]       = new() { "Juventus", "Inter Milan", "AC Milan", "Napoli" },
+        [SportType.Ligue1]       = new() { "Paris Saint-Germain" },
+        [SportType.Eredivisie]   = new() { "Ajax", "PSV Eindhoven", "Feyenoord" },
+        [SportType.PrimeiraLiga] = new() { "Benfica", "Porto", "Sporting CP" },
+        // MLS and ChampionsLeague deliberately omitted: MLS markets aren't
+        // efficiently-priced the way top-5-European-league markets are, and nearly
+        // every Champions League participant would count as "big", making the
+        // filter meaningless for that competition.
+    };
+
     // ── Daily double-up pick ──────────────────────────────────────────────────
     /// <summary>Target combined odds for the daily "safest way to double" pick.</summary>
     public decimal DailyDoubleTargetOdds { get; set; } = 2.0m;

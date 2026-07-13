@@ -20,7 +20,7 @@ const FLAG_STYLE = {
   HIGH_VARIANCE:       { bg: 'bg-orange-700', label: '📈 HIGH VARIANCE'   },
   CORRELATED_BET:      { bg: 'bg-yellow-700', label: '🔗 CORRELATED'      },
   BAD_TIMING:          { bg: 'bg-yellow-700', label: '⏰ BAD TIMING'      },
-  EPL_LOW_EDGE:        { bg: 'bg-yellow-700', label: '🔵 EPL THIN EDGE'   },
+  BIG_MATCHUP_LOW_EDGE: { bg: 'bg-yellow-700', label: '🔵 BIG MATCHUP THIN EDGE' },
   STEAMING:            { bg: 'bg-green-700',  label: '↓ STEAMING'         },
 };
 

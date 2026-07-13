@@ -97,7 +97,7 @@ npm run dev
 
 | Method | Path                        | Description                                        |
 |--------|-----------------------------|----------------------------------------------------|
-| GET    | `/Betting/opportunities`    | Pre-match value bets (edge ≥ 5%, Rule #1 & #2)    |
+| GET    | `/Betting/opportunities`    | Pre-match value bets, all labelled GOOD_BET/RISKY/SKIP (Rule #1 & #2) — SKIP items are still returned, not filtered out |
 | POST   | `/Betting/place`            | Place a bet with full validation gate              |
 | GET    | `/Betting/history`          | All placed bets (audit log)                        |
 | GET    | `/Betting/bankroll`         | Current bankroll state and limit flags             |
@@ -105,13 +105,15 @@ npm run dev
 | POST   | `/Betting/result/{id}`      | Record Win/Loss and update bankroll                |
 | GET    | `/Betting/stats`            | Aggregate win rate, PnL, ROI, and current streak   |
 | GET    | `/Betting/stats/sport`      | Win/loss/PnL breakdown per sport                   |
-| GET    | `/Betting/parlays`          | Suggested 2–4 leg parlay combos from GOOD_BETs     |
+| GET    | `/Betting/parlays`          | Suggested 3–5 leg parlay combos from GOOD_BETs     |
+| GET    | `/Betting/daily-double`     | Safest single leg or small parlay clearing 2x combined odds |
 | GET    | `/Betting/prediction/{id}`  | Poisson model detail for a single match            |
 | GET    | `/Betting/export/csv`       | Download full bet history as CSV                   |
 | GET    | `/Betting/settings`         | Current live config                                |
 | PUT    | `/Betting/settings`         | Update config (applies immediately, no restart)    |
 | POST   | `/Betting/refresh`          | Invalidate odds cache                              |
 | GET    | `/Betting/rejected`         | Bets blocked by validation gate                    |
+| GET    | `/Betting/stats/calibration`| Predicted-probability vs actual-win-rate buckets, to check model calibration against real results |
 | GET    | `/health`                   | Health check                                       |
 
 ### Example: Place a bet
@@ -138,16 +140,30 @@ POST /Betting/result/{guid}
 
 ## Configuration (`appsettings.json`)
 
-| Key                       | Default   | Rule | Description                                      |
+Values below are the actual current `appsettings.json` values, not the C# fallback
+defaults baked into `BettingConfigService` — the two are not always the same
+(`EdgeThreshold` and `MaxConsecutiveLosses` currently differ between them; see the
+Risk Management Rules section).
+
+| Key                       | Current value | Rule | Description                                      |
 |---------------------------|-----------|------|--------------------------------------------------|
 | `InitialBankroll`         | 10000     | —    | Starting bankroll in dollars                     |
 | `KellyFraction`           | 0.5       | —    | Fractional Kelly (0.5 = half-Kelly)              |
-| `MaxStakePercent`         | 0.03      | #3   | Max stake per bet as fraction of bankroll        |
-| `DailyLossLimitPercent`   | 0.10      | #4   | Stop betting today if daily loss exceeds this    |
-| `StopLossPercent`         | 0.20      | #5   | Halt system if cumulative loss exceeds this      |
-| `EdgeThreshold`           | 0.05      | #2   | Minimum model edge to show an opportunity        |
+| `MaxStakePercent`         | 0.03      | #3   | Max stake per bet as fraction of bankroll (fixed 3%, not a range) |
+| `DailyLossLimitPercent`   | 0.10      | #4   | Stop betting today once losses exceed this fraction of the bankroll at the start of the day |
+| `StopLossPercent`         | 0.20      | #5   | Halt system if cumulative loss exceeds this fraction of the *initial* bankroll |
+| `MaxExposurePercent`      | 0.10      | #8   | Total pending-bet stake must not exceed this fraction of current bankroll |
+| `EdgeThreshold`           | **0.04**  | #2   | Minimum model edge to allow *placing* a bet — below this, `/opportunities` still lists the pick (labelled SKIP) but `/place` rejects it |
+| `HighEdgeThreshold`       | 0.20      | #8   | Edge above this triggers a manual-verification warning, not a block |
+| `ParlayMinEdge`           | 0.02      | —    | Minimum edge for a leg to be eligible for a parlay/daily-double combo |
 | `PreMatchMinHoursAhead`   | 1.0       | #1   | Only consider matches ≥ this many hours away     |
 | `PreMatchMaxHoursAhead`   | 336.0     | #1   | Do not bet more than this many hours ahead (336h = 2 weeks) |
+| `MaxConsecutiveLosses`    | **5**     | #10  | Halt betting (tilt protection) after this many losses in a row |
+| `MaxBetsPerMatch`         | 2         | #9   | Max simultaneous bets on the same match           |
+| `TeamBlacklist`           | `[]`      | #11  | Teams never bet on regardless of edge — empty by default, so inactive until populated |
+| `GoodBetMaxStake` / `RiskyMaxStake` | 500 / 50 | — | Secondary per-decision stake caps — at the current $10k bankroll these are looser than `MaxStakePercent`'s $300 cap, so they don't currently bind |
+| `DailyDoubleTargetOdds`   | 2.0       | —    | Target combined odds for `/Betting/daily-double`  |
+| `DailyDoubleMaxLegs`      | 20        | —    | Max legs the daily-double pick will combine       |
 
 ---
 
@@ -173,55 +189,76 @@ Each opportunity returned by `GET /Betting/opportunities` includes:
 
 ## Risk Management Rules
 
+`ValidationService.ValidateAsync` enforces 11 numbered checks at bet-placement time,
+not 10 — this table previously omitted #8, #9, #10 (renumbered below), #11. All
+"current value" figures below are read live from `BettingConfig` (`GET
+/Betting/settings`), which is seeded from `appsettings.json` at startup and can be
+changed at runtime by an Admin via `PUT /Betting/settings`.
+
 | #  | Rule                    | Enforcement                                                  |
 |----|-------------------------|--------------------------------------------------------------|
-| 1  | Pre-match only          | OddsService filters `MatchStartTime` between now+1h and now+2wk |
-| 2  | Edge ≥ 5%               | BettingController skips any outcome below EdgeThreshold       |
-| 3  | Max stake 2–5%          | BetSizingService caps Kelly at MaxStakePercent               |
-| 4  | Daily loss ≤ 10%        | BankrollService rejects bets once DailyLossUsed hits limit   |
-| 5  | Stop-loss at 20%        | System halts; opportunities endpoint returns empty list      |
-| 6  | Market focus            | Lambdas calibrated for mid-tier matches; EPL mains avoided   |
-| 7  | 30–60 min refresh       | Auto-refresh every 5 min in demo; configurable in production |
-| 8  | Verify edge > 20%       | `RequiresVerification` flag shown in UI and API response     |
-| 9  | Full logging            | Every bet logged with prediction, edge, stake, result        |
-| 10 | Bankroll sync           | Bankroll updated immediately after every Win/Loss result     |
+| 1  | Pre-match only          | `OddsService` filters `MatchStartTime` between now+1h and now+2wk |
+| 2  | Edge ≥ 4%               | `ValidationService` **rejects placement** below `EdgeThreshold` (currently 4%, not 5%). `/opportunities` does *not* filter these out — it still returns them labelled `SKIP`, with the placement button disabled client-side. |
+| 3  | Max stake ≤ 3% of bankroll | `BetSizingService` caps half-Kelly at `MaxStakePercent` (a fixed 3% ceiling, not a 2–5% range); `ValidationService` re-checks the final stake against it before placement |
+| 4  | Daily loss ≤ 10%        | `BankrollService` rejects further bets once `DailyLossUsed` hits `DailyLossLimit` — fixed to the bankroll at the *start of the current day*, so the limit doesn't shrink further as losses accrue during the day |
+| 5  | Stop-loss at 20%        | System halts once cumulative loss hits 20% of the *initial* bankroll; `/opportunities` and `/parlays` return empty lists while active |
+| 6  | Market focus            | `AIValidatorService` adds a soft `BIG_MATCHUP_LOW_EDGE` penalty (score −1, not a hard block) when edge is below `BigMatchupEdgeThreshold` (8%) *and* both teams are on that league's `BigTeams` list — a hand-curated set of the most heavily-bet clubs per league (`BettingConfig.BigTeams`). Applies to all 9 soccer leagues, not just EPL; deliberately excludes MLS (markets aren't efficiently-priced the same way) and Champions League (nearly every participant would count as "big"). |
+| 7  | Odds refresh interval   | Background refresh every `OddsRefreshMinutes` (default 30, not currently set in `appsettings.json`). There is no separate "5 min demo mode" — one interval applies everywhere. |
+| 8  | Exposure ≤ 10% of bankroll | `ValidationService` rejects a bet if total pending stake (`TotalExposure`) plus the new stake would exceed `MaxExposurePercent` of current bankroll; warns at 80% of that limit |
+| 9  | Max 2 bets per match    | `ValidationService` rejects a bet once `MaxBetsPerMatch` bets already exist on that match |
+| 10 | Tilt protection         | `ValidationService` halts betting after `MaxConsecutiveLosses` losses in a row (currently 5); warns one loss before the limit |
+| 11 | Team blacklist          | `ValidationService` rejects any bet on a team in `TeamBlacklist` — empty by default, so inactive until populated |
+| —  | High-edge warning       | Edge ≥ `HighEdgeThreshold` (20%) doesn't block the bet — it adds a warning ("manually verify Poisson inputs") surfaced in `ValidationResult.Warnings` and the `AIValidatorService` `HIGH_EDGE` flag. `BetOpportunity.RequiresManualCheck` is computed for the same condition but is not currently read by the frontend. |
+| —  | Full logging            | Every bet logged with prediction, edge, stake, result (`BettingLoggingService`) |
+| —  | Bankroll sync           | Bankroll updated immediately after every Win/Loss result (`BankrollService.UpdateAfterResultAsync`) |
 
 ---
 
 ## Probability Model
 
-**EPL (soccer):**
+**Soccer leagues** (EPL, LaLiga, Bundesliga, SerieA, Ligue1, Eredivisie, PrimeiraLiga,
+MLS, ChampionsLeague — see `SportTypeExtensions.IsSoccerLeague`):
 Full Poisson matrix. Each team's goals are independent Poisson(λ) variables.
 Score combinations 0–10 × 0–10 are enumerated and classified as home/draw/away win.
 Probabilities are renormalized to correct for truncation.
 
-**AFL / NRL / NBA / Esports:**
+**AFL / NRL / NBA / MLB / Esports:**
 Binary outcome model (no draw).
 `P(Home win) = λ_home / (λ_home + λ_away)`
 Home advantage is baked into the higher home lambda.
 
-**Calibration (production):**
-- EPL: Dixon–Coles attack/defence ratings from last 38 games.
-- AFL/NRL: Points differential normalized per league average.
-- NBA: Offensive rating vs defensive rating ratio.
-- Esports: Rolling 90-day win rate per map/format.
+**Calibration (current implementation, not aspirational):**
+Both paths derive lambda from *this match's own de-vigged market odds*, not from
+independent historical team ratings:
+- **Soccer**: `TheOddsApiService.SoccerParams` scales each league's average goals by
+  this match's market-implied win probability relative to the league mean — a
+  simplification, not real Dixon–Coles attack/defence ratings (no per-team data is
+  used). Because the scaling input comes from the match's own odds, the resulting
+  "edge" is largely a Poisson round-trip of the market's own price, not independent
+  forecasting skill.
+- **Non-soccer**: `BettingConfig.HomeCalibration` applies a fixed per-sport
+  home-advantage multiplier to the de-vigged market probability. Without it, model
+  probability equals the market's exactly and edge is always ≤ 0 by construction —
+  the multiplier is what lets the model diverge from the market at all.
+- Both sets of calibration constants are **unverified placeholders**, not derived
+  from real historical results. Check `GET /Betting/stats/calibration` before
+  trusting edge on any sport/league once enough bets have settled to judge it.
 
 ---
 
-## Extending to Real Odds
+## Real Odds Integration
 
-Replace `OddsService.GetMockOdds()` with:
+Already implemented — `TheOddsApiService` fetches live pre-match odds from
+[The Odds API](https://the-odds-api.com) for every sport in `SportKeys`. Set
+`BettingSettings:OddsApiKey` (via `dotnet user-secrets` in dev, or the
+`BETTINGSETTINGS__ODDSAPIKEY` environment variable in production) and
+`OddsService` automatically switches from mock data to real odds — no code
+change needed. Free tier is 500 requests/month; each cache refresh
+(`OddsRefreshMinutes`, default 30 min) costs 1 request per sport.
 
-```csharp
-// Example: The Odds API
-var client = new HttpClient();
-var json = await client.GetStringAsync(
-    "https://api.the-odds-api.com/v4/sports/soccer_epl/odds/?apiKey=KEY&markets=h2h");
-// Deserialize and map to List<MatchOdds>
-```
-
-Then calibrate `HomeLambda` / `AwayLambda` from a separate stats API
-(e.g. Football-Data.org, SportMonks).
+`HomeLambda`/`AwayLambda` are calibrated from the match's own de-vigged market
+odds, not from an independent stats API — see Probability Model above for why
+that makes calibration accuracy an open question, not a solved one.
 
 ---
 
@@ -230,21 +267,24 @@ Then calibrate `HomeLambda` / `AwayLambda` from a separate stats API
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
 | Frontend shows "API error" | Backend not running | Run `dotnet run` in `BettingAnalysis/` |
-| All opportunities list empty | Stop-loss triggered, or no matches in 1h–2wk window | Check `/Betting/bankroll` for `isStopLossTriggered`; use mock data outside AU hours |
+| All opportunities list empty | Stop-loss triggered, or no matches in 1h–2wk window | Check `/Betting/bankroll` for `isStopLossTriggered`; if no real `OddsApiKey` is set, mock data is used and always has matches in-window |
 | Odds never refresh | Cache still valid (30 min TTL) | Click "⟳ New Odds" or call `POST /Betting/refresh` |
 | Bet rejected with exposure error | Too many open (Pending) bets | Settle pending bets via History tab before placing new ones |
-| Parlay tab shows nothing | Fewer than 2 GOOD_BET opportunities | Lower `edgeThreshold` in Settings or wait for better odds |
+| Parlay tab shows nothing | Fewer than 3 eligible legs for any tier | Lower `edgeThreshold`/`ParlayMinEdge` in Settings or wait for better odds |
+| Daily Double shows "no safe way to clear the target" | No combination of today's eligible legs reaches `DailyDoubleTargetOdds` | Lower `DailyDoubleTargetOdds` or raise `DailyDoubleMaxLegs` in Settings |
 | Contribution graph not updating | Commit email mismatch | Ensure Git email matches a verified GitHub account email |
 
 ---
 
 ## Production Checklist
 
-- [ ] Replace in-memory stores with EF Core + SQL Server/PostgreSQL
-- [ ] Add JWT authentication to all endpoints
-- [ ] Add rate limiting (prevent rapid-fire bet placement)
-- [ ] Schedule odds refresh via a background `IHostedService`
-- [ ] Add unit tests for PoissonService, EdgeService, BetSizingService
-- [ ] Add integration tests for BettingController
-- [ ] Move bankroll state to Redis for distributed deployments
-- [ ] Set up Seq or Application Insights for structured logging
+- [x] Replace in-memory stores with EF Core + SQL Server
+- [x] Add JWT authentication to all endpoints
+- [x] Add rate limiting (prevent rapid-fire bet placement)
+- [x] Schedule odds refresh via a background `IHostedService`
+- [x] Add unit tests for PoissonService, EdgeService, BetSizingService
+- [x] Add integration/unit tests for BettingController (`BettingControllerTests`)
+- [x] Implement Rule #6 (market focus — `BettingConfig.BigTeams` + `BigMatchupEdgeThreshold`)
+- [ ] Move bankroll state to Redis for distributed deployments (currently per-instance in-memory, backed by DB snapshots)
+- [ ] Set up Seq or Application Insights for structured logging (currently console + rolling file via Serilog)
+- [ ] Validate calibration constants (`SoccerParams`, `HomeCalibration`, `BigTeams`) against real settled-bet results via `GET /Betting/stats/calibration` — currently unverified placeholders

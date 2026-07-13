@@ -15,10 +15,12 @@ public class AIValidatorServiceTests
     // HighEdgeThreshold=0.15 (test uses 0.18 to trigger it)
     private static readonly BettingConfig DefaultConfig = new()
     {
-        EdgeThreshold     = 0.04,
-        HighEdgeThreshold = 0.15,
-        PreMatchMinHours  = 1.0,
-        PreMatchMaxHours  = 336.0,
+        EdgeThreshold           = 0.04,
+        HighEdgeThreshold       = 0.15,
+        PreMatchMinHours        = 1.0,
+        PreMatchMaxHours        = 336.0,
+        BigMatchupEdgeThreshold = 0.08,
+        BigTeams                = new() { [SportType.EPL] = new() { "Big Team A", "Big Team B" } },
     };
 
     public AIValidatorServiceTests()
@@ -37,7 +39,9 @@ public class AIValidatorServiceTests
         SportType sport          = SportType.AFL,
         string matchId           = "MATCH-001",
         string outcome           = "Home",
-        double probability       = 0.45)   // between 0.35 and 0.50 — no prob bonus or penalty
+        double probability       = 0.45,   // between 0.35 and 0.50 — no prob bonus or penalty
+        string homeTeam          = "",
+        string awayTeam          = "")
     {
         return new BetOpportunity
         {
@@ -50,6 +54,8 @@ public class AIValidatorServiceTests
             LineMovementStatus = lineMovement,
             HoursUntilKickoff  = hoursUntilKickoff,
             SportType          = sport,
+            HomeTeam           = homeTeam,
+            AwayTeam           = awayTeam,
         };
     }
 
@@ -159,22 +165,44 @@ public class AIValidatorServiceTests
     }
 
     [Fact]
-    public void Validate_EplLowEdge_ReturnsRisky()
+    public void Validate_BigMatchupLowEdge_ReturnsRisky()
     {
-        // base 5, edge 0.06 < 0.07 (no EV bonus), EPL + edge < 0.08 → EplLowEdge(−1) = 4 → RISKY
-        var result = _service.Validate([MakeOpp(edge: 0.06, sport: SportType.EPL)]);
+        // base 5, edge 0.06 < 0.07 (no EV bonus), both teams "big" + edge < 0.08 → BigMatchupLowEdge(−1) = 4 → RISKY
+        var result = _service.Validate([MakeOpp(edge: 0.06, sport: SportType.EPL, homeTeam: "Big Team A", awayTeam: "Big Team B")]);
 
         result[0].Decision.Should().Be("RISKY");
-        result[0].Flags.Should().Contain(ValidationFlags.EplLowEdge);
+        result[0].Flags.Should().Contain(ValidationFlags.BigMatchupLowEdge);
     }
 
     [Fact]
-    public void Validate_EplEdgeAtThreshold_NoEplFlag()
+    public void Validate_BigMatchupEdgeAtThreshold_NoFlag()
     {
-        // EPL + edge = 0.08 exactly → NOT EplLowEdge (strict <)
-        var result = _service.Validate([MakeOpp(edge: 0.08, sport: SportType.EPL)]);
+        // Both teams "big" + edge = 0.08 exactly → NOT BigMatchupLowEdge (strict <)
+        var result = _service.Validate([MakeOpp(edge: 0.08, sport: SportType.EPL, homeTeam: "Big Team A", awayTeam: "Big Team B")]);
 
-        result[0].Flags.Should().NotContain(ValidationFlags.EplLowEdge);
+        result[0].Flags.Should().NotContain(ValidationFlags.BigMatchupLowEdge);
+    }
+
+    [Fact]
+    public void Validate_OnlyOneTeamIsBig_NoFlag()
+    {
+        // Only HomeTeam is on the big-teams list — not a "big matchup", rule shouldn't apply
+        var result = _service.Validate([MakeOpp(edge: 0.06, sport: SportType.EPL, homeTeam: "Big Team A", awayTeam: "Some Mid-Table Club")]);
+
+        result[0].Flags.Should().NotContain(ValidationFlags.BigMatchupLowEdge);
+    }
+
+    [Fact]
+    public void Validate_BigMatchupInDifferentSoccerLeague_StillApplies()
+    {
+        // Rule #6 previously only checked SportType.EPL — now applies to any league
+        // with a BigTeams entry. Reuses the EPL BigTeams list from DefaultConfig
+        // against a LaLiga match to prove it's no longer EPL-specific... but LaLiga
+        // has no BigTeams entry in DefaultConfig, so this should NOT flag.
+        var result = _service.Validate([MakeOpp(edge: 0.06, sport: SportType.LaLiga, homeTeam: "Big Team A", awayTeam: "Big Team B")]);
+
+        result[0].Flags.Should().NotContain(ValidationFlags.BigMatchupLowEdge,
+            "LaLiga has no BigTeams entry in this test's config, so the rule shouldn't apply there");
     }
 
     // ── Correlation detection ────────────────────────────────────────────────

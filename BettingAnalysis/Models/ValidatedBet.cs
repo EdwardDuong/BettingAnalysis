@@ -27,7 +27,7 @@ public class ValidatedBet
 /// <summary>
 /// All possible AI Validator flags.
 /// Major flags (heavy penalty): HIGH_EDGE, LINE_MOVING_AGAINST
-/// Minor flags (light penalty): ODDS_TOO_LOW, HIGH_VARIANCE, CORRELATED_BET, BAD_TIMING, EPL_LOW_EDGE
+/// Minor flags (light penalty): ODDS_TOO_LOW, HIGH_VARIANCE, CORRELATED_BET, BAD_TIMING, BIG_MATCHUP_LOW_EDGE
 /// </summary>
 public static class ValidationFlags
 {
@@ -52,7 +52,8 @@ public static class ValidationFlags
     public const string BadTiming         = "BAD_TIMING";
 
     /// <summary>EPL market with edge < 8% — market too efficient for thin edge.</summary>
-    public const string EplLowEdge        = "EPL_LOW_EDGE";
+    /// <summary>Rule #6: edge below BettingConfig.BigMatchupEdgeThreshold on a match between two BigTeams.</summary>
+    public const string BigMatchupLowEdge = "BIG_MATCHUP_LOW_EDGE";
 
     // ── Positive signals (displayed as green tags, no penalty) ────────────────
     /// <summary>Odds shortening — market agrees with prediction.</summary>

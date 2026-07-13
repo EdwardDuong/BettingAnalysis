@@ -17,7 +17,8 @@ namespace BettingAnalysis.Services;
 ///   HighEdge:    −2 (suspiciously high EV — likely stale odds or data error)
 ///   OddsTooLow:  −1 (odds < 1.5 — no payout margin for error)
 ///   HighVariance: −1 (odds > 3.0 — high bankroll volatility)
-///   EplLowEdge:  −1 (EPL + edge < 8% — liquid market, thin edge not enough)
+///   BigMatchupLowEdge: −1 (both teams on BettingConfig.BigTeams + edge < BigMatchupEdgeThreshold
+///                          — efficiently-priced market, thin edge not enough)
 ///   CorrelatedBet: −1 (multiple selections on same match)
 ///   BadTiming:   −1
 ///
@@ -101,10 +102,16 @@ public class AIValidatorService : IAIValidatorService
             score -= 1;
         }
 
-        // ── EPL thin-edge warning ─────────────────────────────────────────────
-        if (opp.SportType == SportType.EPL && opp.Edge < 0.08)
+        // ── Big-matchup thin-edge warning (Rule #6: market focus) ──────────────
+        // Only applies when BOTH teams are on that league's "big" list — a match
+        // between two mid-table teams in the same league isn't the efficiently-
+        // priced market this rule is trying to guard against.
+        if (config.BigTeams.TryGetValue(opp.SportType, out var bigTeams)
+            && bigTeams.Any(t => t.Equals(opp.HomeTeam, StringComparison.OrdinalIgnoreCase))
+            && bigTeams.Any(t => t.Equals(opp.AwayTeam, StringComparison.OrdinalIgnoreCase))
+            && opp.Edge < config.BigMatchupEdgeThreshold)
         {
-            flags.Add(ValidationFlags.EplLowEdge);
+            flags.Add(ValidationFlags.BigMatchupLowEdge);
             score -= 1;
         }
 
