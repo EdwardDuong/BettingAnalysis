@@ -34,6 +34,20 @@ public class PoissonServiceTests
         AwayLambda    = awayLambda,
     };
 
+    private static MatchOdds SoccerMatch(SportType sport, double homeLambda, double awayLambda) => new()
+    {
+        MatchId       = "TEST-003",
+        HomeTeam      = "Home",
+        AwayTeam      = "Away",
+        HomeOdds      = 2.00m,
+        AwayOdds      = 3.50m,
+        DrawOdds      = 3.20m,
+        MatchStartTime = DateTime.UtcNow.AddHours(3),
+        SportType     = sport,
+        HomeLambda    = homeLambda,
+        AwayLambda    = awayLambda,
+    };
+
     [Fact]
     public void EPL_probabilities_sum_to_one()
     {
@@ -102,5 +116,26 @@ public class PoissonServiceTests
         Assert.Equal(0.5, result.HomeWinProb);
         Assert.Equal(0.5, result.AwayWinProb);
         Assert.Equal(0,   result.DrawProb);
+    }
+
+    [Theory]
+    [InlineData(SportType.LaLiga)]
+    [InlineData(SportType.Bundesliga)]
+    [InlineData(SportType.SerieA)]
+    [InlineData(SportType.Ligue1)]
+    [InlineData(SportType.Eredivisie)]
+    [InlineData(SportType.PrimeiraLiga)]
+    [InlineData(SportType.MLS)]
+    [InlineData(SportType.ChampionsLeague)]
+    public void NonEplSoccerLeagues_StillUseDrawInclusivePoissonGrid(SportType sport)
+    {
+        // Predict() used to special-case only SportType.EPL for the draw-inclusive
+        // grid; every other soccer league silently fell through to the no-draw binary
+        // model and got DrawProb = 0 even though it has a real Draw market/odds.
+        var result = _sut.Predict(SoccerMatch(sport, 1.5, 1.1));
+
+        Assert.True(result.DrawProb > 0, $"{sport} should get a non-zero draw probability from the Poisson grid");
+        var total = result.HomeWinProb + result.DrawProb + result.AwayWinProb;
+        Assert.InRange(total, 0.999, 1.001);
     }
 }

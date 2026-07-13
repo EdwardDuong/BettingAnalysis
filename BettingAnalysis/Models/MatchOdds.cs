@@ -3,7 +3,29 @@ namespace BettingAnalysis.Models;
 /// <summary>Projection used for per-sport stats and calibration aggregation — avoids loading full Bet entities.</summary>
 public record SettledBetSlice(SportType SportType, string Result, double Probability, decimal PnL, double Edge, double? CLV);
 
-public enum SportType { EPL, AFL, NRL, NBA, Esports, LaLiga, Bundesliga, SerieA, Ligue1 }
+public enum SportType
+{
+    EPL, AFL, NRL, NBA, Esports, LaLiga, Bundesliga, SerieA, Ligue1, MLB,
+    Eredivisie, PrimeiraLiga, MLS, ChampionsLeague,
+}
+
+public static class SportTypeExtensions
+{
+    // Single source of truth for "this sport can end in a draw and uses the full
+    // Poisson goal-matrix model" — shared by PoissonService (which grid to use),
+    // TheOddsApiService (whether to map a Draw price), and OpportunityPipelineService
+    // (whether to offer a Draw outcome). Previously this list only lived inside
+    // TheOddsApiService and PoissonService.Predict special-cased EPL alone, so every
+    // non-EPL soccer league silently got DrawProb = 0 from the no-draw binary model
+    // even though it still had a real Draw market and odds.
+    private static readonly HashSet<SportType> SoccerLeagues = new()
+    {
+        SportType.EPL, SportType.LaLiga, SportType.Bundesliga, SportType.SerieA, SportType.Ligue1,
+        SportType.Eredivisie, SportType.PrimeiraLiga, SportType.MLS, SportType.ChampionsLeague,
+    };
+
+    public static bool IsSoccerLeague(this SportType sport) => SoccerLeagues.Contains(sport);
+}
 
 /// <summary>
 /// A pre-match fixture with current and previous bookmaker odds.

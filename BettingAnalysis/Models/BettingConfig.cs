@@ -104,6 +104,10 @@ public class BettingConfig
         [SportType.NRL]     = new HomeAwayCalibration { Home = 1.06, Away = 0.95 },
         [SportType.NBA]     = new HomeAwayCalibration { Home = 1.09, Away = 0.92 },
         [SportType.Esports] = new HomeAwayCalibration { Home = 1.04, Away = 0.97 },
+        // MLB's structural home-field advantage is smaller than NBA/NFL-style sports
+        // (~54% raw home win rate historically) — this factor is a rough placeholder
+        // in the same spirit as the others, not derived from real data yet.
+        [SportType.MLB]     = new HomeAwayCalibration { Home = 1.05, Away = 0.96 },
     };
 }
 

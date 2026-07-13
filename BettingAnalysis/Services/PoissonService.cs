@@ -6,13 +6,13 @@ namespace BettingAnalysis.Services;
 /// <summary>
 /// Poisson Distribution Match Outcome Model.
 ///
-/// For sports with draws (EPL/soccer):
+/// For sports with draws (soccer leagues — see SportTypeExtensions.IsSoccerLeague):
 ///   Each team's goals are modelled as independent Poisson processes.
 ///   P(team scores k goals) = e^(-lambda) * lambda^k / k!
 ///   We enumerate all score combinations 0..MaxGoals x 0..MaxGoals
 ///   and accumulate home win / draw / away win probabilities.
 ///
-/// For sports without draws (AFL, NRL, NBA, Esports):
+/// For sports without draws (AFL, NRL, NBA, MLB, Esports):
 ///   Simplified relative-strength model using the same lambdas
 ///   as a proxy for team quality (no draw bucket).
 ///
@@ -27,17 +27,10 @@ public class PoissonService : IPoissonService
     /// </summary>
     private const int MaxGoals = 10;
 
-    public PredictionResult Predict(MatchOdds match)
-    {
-        return match.SportType switch
-        {
-            // EPL uses full Poisson grid with draw bucket
-            SportType.EPL => PredictWithPoisson(match.HomeLambda, match.AwayLambda),
-
-            // All other sports: binary outcome, no draw
-            _ => PredictNoDraw(match.HomeLambda, match.AwayLambda)
-        };
-    }
+    public PredictionResult Predict(MatchOdds match) =>
+        match.SportType.IsSoccerLeague()
+            ? PredictWithPoisson(match.HomeLambda, match.AwayLambda) // full Poisson grid with draw bucket
+            : PredictNoDraw(match.HomeLambda, match.AwayLambda);     // binary outcome, no draw
 
     /// <summary>
     /// Full Poisson model: enumerate score matrix and classify results.

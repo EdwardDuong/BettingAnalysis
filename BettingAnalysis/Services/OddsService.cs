@@ -239,6 +239,43 @@ public class OddsService : IOddsService
                 MatchStartTime=now.AddDays(12).AddHours(4), SportType=SportType.NBA, HomeLambda=1.90, AwayLambda=1.05
             },
 
+            // ── Day 14–16 ─────────────────────────────────────────────────────────
+            // MLB — stable
+            new() {
+                MatchId="MLB-001", HomeTeam="New York Yankees", AwayTeam="Boston Red Sox",
+                HomeOdds=1.75m, DrawOdds=null, AwayOdds=2.10m,
+                PreviousHomeOdds=1.78m, PreviousAwayOdds=2.05m,
+                MatchStartTime=now.AddDays(1).AddHours(6), SportType=SportType.MLB, HomeLambda=1.35, AwayLambda=1.10
+            },
+            // Eredivisie — home steaming
+            new() {
+                MatchId="ERE-001", HomeTeam="Ajax", AwayTeam="PSV Eindhoven",
+                HomeOdds=2.20m, DrawOdds=3.50m, AwayOdds=3.10m,
+                PreviousHomeOdds=2.40m, PreviousDrawOdds=3.45m, PreviousAwayOdds=2.95m,
+                MatchStartTime=now.AddDays(2).AddHours(3), SportType=SportType.Eredivisie, HomeLambda=1.95, AwayLambda=1.45
+            },
+            // Primeira Liga — draw value
+            new() {
+                MatchId="PRI-001", HomeTeam="Benfica", AwayTeam="Porto",
+                HomeOdds=2.10m, DrawOdds=3.30m, AwayOdds=3.40m,
+                PreviousHomeOdds=2.05m, PreviousDrawOdds=3.35m, PreviousAwayOdds=3.50m,
+                MatchStartTime=now.AddDays(3).AddHours(2), SportType=SportType.PrimeiraLiga, HomeLambda=1.70, AwayLambda=1.25
+            },
+            // MLS — stable
+            new() {
+                MatchId="MLS-001", HomeTeam="LA Galaxy", AwayTeam="Seattle Sounders",
+                HomeOdds=1.95m, DrawOdds=3.40m, AwayOdds=3.70m,
+                PreviousHomeOdds=1.98m, PreviousDrawOdds=3.35m, PreviousAwayOdds=3.60m,
+                MatchStartTime=now.AddDays(4).AddHours(5), SportType=SportType.MLS, HomeLambda=1.55, AwayLambda=1.10
+            },
+            // Champions League — away drifting
+            new() {
+                MatchId="UCL-001", HomeTeam="Real Madrid", AwayTeam="Bayern Munich",
+                HomeOdds=2.30m, DrawOdds=3.60m, AwayOdds=2.90m,
+                PreviousHomeOdds=2.35m, PreviousDrawOdds=3.55m, PreviousAwayOdds=2.70m,
+                MatchStartTime=now.AddDays(5).AddHours(3), SportType=SportType.ChampionsLeague, HomeLambda=1.80, AwayLambda=1.75
+            },
+
             // ── Outside 2-week window — excluded by timing rule ───────────────────
             new() {
                 MatchId="EPL-FAR", HomeTeam="Brighton",           AwayTeam="Brentford",

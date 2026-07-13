@@ -184,6 +184,7 @@ export const getBankroll      = () => request('/bankroll');
 export const getStats         = () => request('/stats');
 export const getSportStats    = () => request('/stats/sport');
 export const getParlays       = () => request('/parlays');
+export const getDailyDouble   = () => request('/daily-double');
 export const getRejected      = () => request('/rejected');
 export const getSettings      = () => request('/settings');
 export const refreshOdds      = () => request('/refresh', { method: 'POST' });

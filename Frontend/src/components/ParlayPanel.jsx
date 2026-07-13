@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { getParlays } from '../services/api.js';
 
-const SPORT_EMOJI = { EPL: '⚽', LaLiga: '⚽', Bundesliga: '⚽', SerieA: '⚽', Ligue1: '⚽', AFL: '🏈', NRL: '🏉', NBA: '🏀', Esports: '🎮' };
+const SPORT_EMOJI = {
+  EPL: '⚽', LaLiga: '⚽', Bundesliga: '⚽', SerieA: '⚽', Ligue1: '⚽',
+  Eredivisie: '⚽', PrimeiraLiga: '⚽', MLS: '⚽', ChampionsLeague: '⚽',
+  AFL: '🏈', NRL: '🏉', NBA: '🏀', MLB: '⚾', Esports: '🎮',
+};
 
 const RISK_STYLE = {
   Safe:       { bg: 'bg-green-900 border-green-700',   text: 'text-green-300',  badge: 'bg-green-700'  },

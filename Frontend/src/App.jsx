@@ -6,6 +6,7 @@ import OpportunitiesTable from './components/OpportunitiesTable.jsx';
 import BetHistoryTable    from './components/BetHistoryTable.jsx';
 import SettingsPanel      from './components/SettingsPanel.jsx';
 import ParlayPanel        from './components/ParlayPanel.jsx';
+import DailyDoublePanel   from './components/DailyDoublePanel.jsx';
 import AnalyticsPanel     from './components/AnalyticsPanel.jsx';
 import RejectedBetsPanel  from './components/RejectedBetsPanel.jsx';
 import Toast              from './components/Toast.jsx';
@@ -15,11 +16,15 @@ import {
   isAuthenticated, getUser, logout,
 } from './services/api.js';
 
-const SPORTS      = ['All', 'EPL', 'LaLiga', 'Bundesliga', 'SerieA', 'Ligue1', 'NRL', 'AFL', 'NBA', 'Esports'];
-const MAIN_TABS   = ['Opportunities', 'Parlays', 'History', 'Analytics', 'Rejected', 'Settings'];
+const SPORTS      = [
+  'All', 'EPL', 'LaLiga', 'Bundesliga', 'SerieA', 'Ligue1', 'Eredivisie', 'PrimeiraLiga', 'MLS', 'ChampionsLeague',
+  'NRL', 'AFL', 'NBA', 'MLB', 'Esports',
+];
+const MAIN_TABS   = ['Opportunities', 'Parlays', 'Daily Double', 'History', 'Analytics', 'Rejected', 'Settings'];
 const SPORT_EMOJI = {
   EPL: '⚽', LaLiga: '⚽', Bundesliga: '⚽', SerieA: '⚽', Ligue1: '⚽',
-  AFL: '🏈', NRL: '🏉', NBA: '🏀', Esports: '🎮', All: '🌐',
+  Eredivisie: '⚽', PrimeiraLiga: '⚽', MLS: '⚽', ChampionsLeague: '⚽',
+  AFL: '🏈', NRL: '🏉', NBA: '🏀', MLB: '⚾', Esports: '🎮', All: '🌐',
 };
 
 export default function App() {
@@ -262,6 +267,9 @@ export default function App() {
 
         {/* ── Parlays ─────────────────────────────────────────────── */}
         {mainTab === 'Parlays' && <ParlayPanel />}
+
+        {/* ── Daily Double ────────────────────────────────────────── */}
+        {mainTab === 'Daily Double' && <DailyDoublePanel />}
 
         {/* ── History ─────────────────────────────────────────────── */}
         {mainTab === 'History' && (

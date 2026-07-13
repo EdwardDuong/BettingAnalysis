@@ -1,7 +1,11 @@
 import React, { useState } from 'react';
 import { placeBet } from '../services/api.js';
 
-const SPORT_EMOJI = { EPL: '⚽', LaLiga: '⚽', Bundesliga: '⚽', SerieA: '⚽', Ligue1: '⚽', AFL: '🏈', NRL: '🏉', NBA: '🏀', Esports: '🎮' };
+const SPORT_EMOJI = {
+  EPL: '⚽', LaLiga: '⚽', Bundesliga: '⚽', SerieA: '⚽', Ligue1: '⚽',
+  Eredivisie: '⚽', PrimeiraLiga: '⚽', MLS: '⚽', ChampionsLeague: '⚽',
+  AFL: '🏈', NRL: '🏉', NBA: '🏀', MLB: '⚾', Esports: '🎮',
+};
 
 const DECISION_STYLE = {
   GOOD_BET: { bg: 'bg-green-800',  text: 'text-green-100',  label: '✅ GOOD BET' },

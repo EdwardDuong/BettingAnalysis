@@ -126,7 +126,7 @@ public class OpportunityPipelineService : IOpportunityPipelineService
     {
         yield return ("Home", match.HomeTeam, match.HomeOdds, match.PreviousHomeOdds, prediction.HomeWinProb);
         yield return ("Away", match.AwayTeam, match.AwayOdds, match.PreviousAwayOdds, prediction.AwayWinProb);
-        if (match.DrawOdds.HasValue && TheOddsApiService.IsSoccerLeague(match.SportType))
+        if (match.DrawOdds.HasValue && match.SportType.IsSoccerLeague())
             yield return ("Draw", "Draw", match.DrawOdds.Value, match.PreviousDrawOdds, prediction.DrawProb);
     }
 

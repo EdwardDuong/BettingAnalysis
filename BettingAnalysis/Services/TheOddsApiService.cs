@@ -15,11 +15,18 @@ namespace BettingAnalysis.Services;
 ///   Bundesliga → soccer_germany_bundesliga
 ///   SerieA     → soccer_italy_serie_a
 ///   Ligue1     → soccer_france_ligue_one
+///   Eredivisie      → soccer_netherlands_eredivisie
+///   PrimeiraLiga    → soccer_portugal_primeira_liga
+///   MLS             → soccer_usa_mls
+///   ChampionsLeague → soccer_uefa_champs_league
 ///   AFL        → aussierules_afl
 ///   NRL        → rugbyleague_nrl
 ///   NBA        → basketball_nba
+///   MLB        → baseball_mlb
 ///
 /// European football is off-season June–July; leagues resume ~August.
+/// MLS runs ~February–December (opposite the European calendar).
+/// MLB regular season runs ~late March to late September/October.
 /// </summary>
 public class TheOddsApiService
 {
@@ -31,19 +38,20 @@ public class TheOddsApiService
     // Maps our SportType enum to The Odds API sport keys
     private static readonly Dictionary<SportType, string> SportKeys = new()
     {
-        { SportType.EPL,        "soccer_epl"                   },
-        { SportType.LaLiga,     "soccer_spain_la_liga"         },
-        { SportType.Bundesliga, "soccer_germany_bundesliga"    },
-        { SportType.SerieA,     "soccer_italy_serie_a"         },
-        { SportType.Ligue1,     "soccer_france_ligue_one"      },
-        { SportType.AFL,        "aussierules_afl"              },
-        { SportType.NRL,        "rugbyleague_nrl"              },
-        { SportType.NBA,        "basketball_nba"               },
+        { SportType.EPL,             "soccer_epl"                       },
+        { SportType.LaLiga,          "soccer_spain_la_liga"             },
+        { SportType.Bundesliga,      "soccer_germany_bundesliga"        },
+        { SportType.SerieA,          "soccer_italy_serie_a"             },
+        { SportType.Ligue1,          "soccer_france_ligue_one"          },
+        { SportType.Eredivisie,      "soccer_netherlands_eredivisie"    },
+        { SportType.PrimeiraLiga,    "soccer_portugal_primeira_liga"    },
+        { SportType.MLS,             "soccer_usa_mls"                   },
+        { SportType.ChampionsLeague, "soccer_uefa_champs_league"        },
+        { SportType.AFL,             "aussierules_afl"                  },
+        { SportType.NRL,             "rugbyleague_nrl"                  },
+        { SportType.NBA,             "basketball_nba"                   },
+        { SportType.MLB,             "baseball_mlb"                     },
     };
-
-    // Soccer leagues that use the Poisson goal model (as opposed to score-based calibration)
-    private static readonly HashSet<SportType> SoccerLeagues = new()
-        { SportType.EPL, SportType.LaLiga, SportType.Bundesliga, SportType.SerieA, SportType.Ligue1 };
 
     // League-specific average goals per match (home, away) and historical home win rates.
     // Used to scale expected goals by this match's market-implied win probability
@@ -57,11 +65,15 @@ public class TheOddsApiService
     // GET /Betting/stats/calibration would justify, not as a proven signal.
     private static readonly Dictionary<SportType, (double AvgHome, double AvgAway, double AvgHomeWinRate, double AvgAwayWinRate)> SoccerParams = new()
     {
-        { SportType.EPL,        (1.45, 1.05, 0.46, 0.29) },
-        { SportType.LaLiga,     (1.55, 1.10, 0.50, 0.25) },  // High home advantage historically
-        { SportType.Bundesliga, (1.60, 1.30, 0.44, 0.30) },  // Higher scoring, fewer draws
-        { SportType.SerieA,     (1.40, 1.00, 0.44, 0.29) },  // More defensive
-        { SportType.Ligue1,     (1.45, 1.05, 0.44, 0.29) },  // Similar to EPL
+        { SportType.EPL,             (1.45, 1.05, 0.46, 0.29) },
+        { SportType.LaLiga,          (1.55, 1.10, 0.50, 0.25) },  // High home advantage historically
+        { SportType.Bundesliga,      (1.60, 1.30, 0.44, 0.30) },  // Higher scoring, fewer draws
+        { SportType.SerieA,          (1.40, 1.00, 0.44, 0.29) },  // More defensive
+        { SportType.Ligue1,          (1.45, 1.05, 0.44, 0.29) },  // Similar to EPL
+        { SportType.Eredivisie,      (1.65, 1.20, 0.47, 0.28) },  // High-scoring, open play
+        { SportType.PrimeiraLiga,    (1.50, 1.05, 0.48, 0.26) },  // "Big 3" dominance skews home advantage up
+        { SportType.MLS,             (1.45, 1.15, 0.50, 0.24) },  // Long travel distances raise home advantage
+        { SportType.ChampionsLeague, (1.50, 1.15, 0.45, 0.27) },  // Mixed leagues; quality gaps dominate over home advantage
     };
 
     private static readonly JsonSerializerOptions JsonOpts = new()
@@ -78,8 +90,6 @@ public class TheOddsApiService
     }
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(_apiKey);
-
-    public static bool IsSoccerLeague(SportType sport) => SoccerLeagues.Contains(sport);
 
     /// <summary>
     /// Fetch live pre-match odds for all configured sports.
@@ -182,7 +192,7 @@ public class TheOddsApiService
 
         double homeLambda, awayLambda;
 
-        if (SoccerLeagues.Contains(sport))
+        if (sport.IsSoccerLeague())
         {
             // All soccer leagues: Poisson goal model with league-specific averages.
             // Scale each team's expected goals by relative strength vs league mean.
@@ -210,7 +220,7 @@ public class TheOddsApiService
             HomeTeam       = ev.HomeTeam,
             AwayTeam       = ev.AwayTeam,
             HomeOdds       = homeOdds,
-            DrawOdds       = SoccerLeagues.Contains(sport) ? drawOdds : null,
+            DrawOdds       = sport.IsSoccerLeague() ? drawOdds : null,
             AwayOdds       = awayOdds,
             MatchStartTime = ev.CommenceTime,
             SportType      = sport,
