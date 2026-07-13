@@ -108,6 +108,16 @@ public class BettingConfig
         // every Champions League participant would count as "big", making the
         // filter meaningless for that competition.
     };
+    // NOT YET VERIFIED against real Odds API responses: the match against
+    // HomeTeam/AwayTeam is an exact (case-insensitive) string comparison, and
+    // these names were typed by hand to match this app's own mock-data
+    // conventions (e.g. "Tottenham", not "Tottenham Hotspur"). Every league this
+    // list covers is European and out of season as of writing (~June-July), so
+    // the real API returns zero matches for all of them right now -- there has
+    // been no opportunity to confirm these strings match what the live API
+    // actually sends. Check this against real fixtures once the season resumes
+    // (~August) before trusting Rule #6 in production; if names don't match, the
+    // rule silently never fires (no error, no log) rather than failing loudly.
 
     // ── Daily double-up pick ──────────────────────────────────────────────────
     /// <summary>Target combined odds for the daily "safest way to double" pick.</summary>

@@ -295,3 +295,4 @@ that makes calibration accuracy an open question, not a solved one.
 - [ ] Move bankroll state to Redis for distributed deployments (currently per-instance in-memory, backed by DB snapshots)
 - [ ] Set up Seq or Application Insights for structured logging (currently console + rolling file via Serilog)
 - [ ] Validate calibration constants (`SoccerParams`, `HomeCalibration`, `BigTeams`) against real settled-bet results via `GET /Betting/stats/calibration` — currently unverified placeholders
+- [ ] Verify `BigTeams` team-name strings against real Odds API responses once the European season resumes (~August) — every league it covers is currently out of season, so this has never been checked against live data; a mismatched name means Rule #6 silently never fires, with no error or log
